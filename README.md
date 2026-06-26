@@ -50,12 +50,37 @@ them by name so your project's versions win automatically.
 
 ## Install
 
-Skills are discovered from `~/.claude/skills/` (user) or a repo's
+The quickest way is the [`skills`](https://github.com/vercel-labs/skills) CLI,
+which copies the skill into `.claude/skills/` for you:
+
+```bash
+# project-local (./.claude/skills/)
+npx skills add nikolasbarwicki/skills
+
+# or globally (~/.claude/skills/)
+npx skills add -g nikolasbarwicki/skills
+```
+
+List or pick specific skills:
+
+```bash
+npx skills add nikolasbarwicki/skills --list
+npx skills add nikolasbarwicki/skills --skill ship-epic
+```
+
+**Heads up:** `ship-epic` invokes its companion skills (`implement`, `tdd`,
+`review`, `improve-codebase-architecture`) by name — installing `ship-epic`
+alone does not pull them. Add them separately from
+[Matt Pocock's skills repo](https://github.com/mattpocock/skills).
+
+### Manual install
+
+Skills are also discovered from `~/.claude/skills/` (user) or a repo's
 `.claude/skills/` (project). Symlink the skill you want:
 
 ```bash
 git clone https://github.com/nikolasbarwicki/skills.git
-ln -s "$PWD/skills/ship-epic" ~/.claude/skills/ship-epic
+ln -s "$PWD/skills/skills/ship-epic" ~/.claude/skills/ship-epic
 ```
 
 Then invoke it in Claude Code with `/ship-epic`.
