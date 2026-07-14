@@ -1,6 +1,6 @@
 ---
 name: ship-epic
-description: Autonomously ship an entire GitHub epic end to end — resolve child-issue dependencies, approve test seams, implement each issue in a fresh subagent using TDD, open a PR, gate on CI and independent review, merge, then run architecture/review/structure epilogue passes and close the parent issue. Skips genuinely-blocked issues instead of looping forever. Use when the user wants to implement all pending issues under a parent/epic issue, e.g. "/ship-epic 28", "/ship-epic 28 30", or "implement the whole epic in #28".
+description: Ship every reachable child issue in a GitHub epic autonomously. Use when the user wants to implement a whole parent/epic issue, e.g. "/ship-epic 28", "/ship-epic 28 30", or "implement the whole epic in #28".
 ---
 
 # Ship Epic
@@ -22,7 +22,7 @@ Your context **will** be compacted on a long run. Auto-compact preserves the sys
 ### Recovery procedure
 
 1. **Re-read** [prompts.md](prompts.md) (it does not survive compaction) and skim this file.
-2. `gh issue view <parent> --comments` + `gh issue list` → re-derive run-start SHA, dependency order, what's merged, what's blocked.
+2. `gh issue view <parent> --comments` + `gh issue list` → re-derive run-start SHA, dependency order, approved test decisions, what's merged, and what's blocked. Copy the recovered seam or `NON-TDD` exception into the next implementer prompt.
 3. **Reconcile real state** for the issue you think is "next": `gh pr list --search "Closes #<n>" --state all`. If an open PR already exists, resume from **CI gate** (step 3 of the loop), do *not* re-implement. Trust GitHub over your memory.
 
 ### What goes to GitHub

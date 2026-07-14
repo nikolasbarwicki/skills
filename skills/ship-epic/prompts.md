@@ -7,9 +7,8 @@ Fill in the `<...>` placeholders. Pass **small inputs** (issue number, not body 
 ```
 You are running UNATTENDED as part of an autonomous epic run. There is no human to ask.
 - Do NOT ask for approval or confirmation. Never block waiting for input.
-- The issue's acceptance criteria ARE the approved scope. Any test seam or non-TDD
-  exception in your prompt was separately approved during the epic preflight. Treat that
-  test decision as final and proceed.
+- The issue's acceptance criteria ARE the approved scope. Follow them without reopening
+  product decisions.
 - Use skills BY NAME (the project's versions win), never by hardcoded path.
 - Keep your final message tiny — it is the only thing that enters the orchestrator's context.
   No diffs, no file contents, no logs.
@@ -23,6 +22,8 @@ You are running UNATTENDED as part of an autonomous epic run. There is no human 
 Implement GitHub issue #<n> in this repository, alone on a feature branch.
 
 Approved test decision: <public seam + behavior | NON-TDD: reason>
+
+This test decision was separately approved during the epic preflight. Treat it as final.
 
 Setup:
 1. git checkout main && git pull
