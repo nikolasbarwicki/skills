@@ -27,7 +27,12 @@ Your context **will** be compacted on a long run. Auto-compact preserves the sys
 
 ### What goes to GitHub
 
-- **Run start** (only after test preflight approval): `git fetch && git rev-parse origin/main` → comment on parent: `🤖 ship-epic started at <sha>. Dependency order: #30, #31, …. Approved test decisions: #30 <seam>; #31 NON-TDD (<reason>); …`. That SHA bounds the epilogue passes, and the test decisions make recovery independent of conversation context.
+- **Run start** (only after test preflight approval): `git fetch && git rev-parse origin/main` → comment on the parent with the SHA, dependency order, and the approved test-decision table below. The SHA bounds the epilogue passes, and the table makes recovery independent of conversation context.
+
+  | Issue | Mode | Public seam | Observed behavior | Exception reason |
+  | --- | --- | --- | --- | --- |
+  | #30 | TDD | `<interface>` | `<behavior>` | — |
+  | #31 | NON-TDD | — | `<verification target>` | `<reason>` |
 - **After every merge**: comment on parent: `✅ #<n> merged in PR #<pr> (<sha>).`
 - **Failed attempt**: comment on the *child*: `Attempt N failed: <one line>.`
 - **Blocked issue**: comment on the *child* + add the `blocked` label (see circuit breaker).
@@ -50,7 +55,7 @@ After resolving the reachable child issues, run one human-in-the-loop preflight 
 2. Propose a compact map for every ticket: the public interface under test and the behavior observed there. Reuse an approved testing strategy from the parent spec where one exists.
 3. Present the complete map once and wait for one explicit user approval.
 
-Every ticket must have either an approved seam or an explicit user-approved `NON-TDD` exception with a reason. One unresolved ticket stops the entire epic before mutation; never infer seam approval from ordinary acceptance criteria. After approval, persist the complete map in the parent run-start comment using the format above.
+Every ticket must have either an approved seam or an explicit user-approved `NON-TDD` exception with a reason. One unresolved ticket stops the entire epic before mutation; never infer seam approval from ordinary acceptance criteria. After approval, persist one row per reachable ticket in the parent run-start table above.
 
 ## Per-issue loop
 
