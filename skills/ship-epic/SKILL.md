@@ -1,6 +1,6 @@
 ---
 name: ship-epic
-description: Autonomously ship an entire GitHub epic end to end — resolve the dependency order of child issues, implement each in a fresh subagent (TDD via the implement/tdd skills), open a PR, gate on CI and an independent review, merge, then run architecture/review/structure epilogue passes and close the parent issue. Skips genuinely-blocked issues instead of looping forever. Use when the user wants to implement all pending issues under a parent/epic issue, e.g. "/ship-epic 28", "/ship-epic 28 30", or "implement the whole epic in #28".
+description: Autonomously ship an entire GitHub epic end to end — resolve child-issue dependencies, approve test seams, implement each issue in a fresh subagent using TDD, open a PR, gate on CI and independent review, merge, then run architecture/review/structure epilogue passes and close the parent issue. Skips genuinely-blocked issues instead of looping forever. Use when the user wants to implement all pending issues under a parent/epic issue, e.g. "/ship-epic 28", "/ship-epic 28 30", or "implement the whole epic in #28".
 ---
 
 # Ship Epic
@@ -9,7 +9,7 @@ You are the **orchestrator**. You never write code, read implementation files, o
 
 **Arguments**: `/ship-epic <parent-issue> [start-issue]` — parent epic issue number; optional child issue to start from (default: first in dependency order).
 
-**Requires** these companion skills, invoked by name: `implement`, `tdd`, `review`, `improve-codebase-architecture`. See the repo README for where to get them.
+**Requires** these companion skills, invoked by name: `tdd`, `review`, `improve-codebase-architecture`. See the repo README for where to get them.
 
 ## Durability: state lives in GitHub, not in context
 
@@ -27,7 +27,7 @@ Your context **will** be compacted on a long run. Auto-compact preserves the sys
 
 ### What goes to GitHub
 
-- **Run start**: `git fetch && git rev-parse origin/main` → comment on parent: `🤖 ship-epic started at <sha>. Dependency order: #30, #31, …`. That SHA bounds the epilogue passes.
+- **Run start** (only after test preflight approval): `git fetch && git rev-parse origin/main` → comment on parent: `🤖 ship-epic started at <sha>. Dependency order: #30, #31, …. Approved test decisions: #30 <seam>; #31 NON-TDD (<reason>); …`. That SHA bounds the epilogue passes, and the test decisions make recovery independent of conversation context.
 - **After every merge**: comment on parent: `✅ #<n> merged in PR #<pr> (<sha>).`
 - **Failed attempt**: comment on the *child*: `Attempt N failed: <one line>.`
 - **Blocked issue**: comment on the *child* + add the `blocked` label (see circuit breaker).
@@ -42,12 +42,22 @@ Child issues are **not** processed by issue number. Before the loop:
 
 If `[start-issue]` is given, begin there but still respect dependency order for everything after.
 
+## Approve test seams before mutation
+
+After resolving the reachable child issues, run one human-in-the-loop preflight before posting the run-start comment, creating a branch, or changing code:
+
+1. Read the parent spec and every reachable child ticket.
+2. Propose a compact map for every ticket: the public interface under test and the behavior observed there. Reuse an approved testing strategy from the parent spec where one exists.
+3. Present the complete map once and wait for one explicit user approval.
+
+Every ticket must have either an approved seam or an explicit user-approved `NON-TDD` exception with a reason. One unresolved ticket stops the entire epic before mutation; never infer seam approval from ordinary acceptance criteria. After approval, persist the complete map in the parent run-start comment using the format above.
+
 ## Per-issue loop
 
 For each child in dependency order:
 
 1. **Clean-state guard + sync**: ensure a clean tree on `main`. If a previous attempt left the working tree dirty or on a feature branch, discard its uncommitted changes, then `git checkout main && git pull`. The orchestrator must always start an issue from a clean `main`. (Single shared tree, serial — parallel worktree execution is a separate, more advanced mode.)
-2. **Implement** (subagent): spawn a `general-purpose` subagent with the **implementer** prompt from [prompts.md](prompts.md). It branches from main, runs the `implement` skill **by name** (which uses `tdd` at seams) under the AFK contract, commits, pushes, opens a PR with `Closes #<n>`. Returns only the PR number + 3-line summary.
+2. **Implement** (subagent): spawn a `general-purpose` subagent with the **implementer** prompt from [prompts.md](prompts.md), including that ticket's approved seam or `NON-TDD` exception. It branches from main, applies `tdd` **by name** at an approved seam using red → green vertical slices, or follows the approved exception without claiming TDD. It commits, pushes, opens a PR with `Closes #<n>`, and returns only the PR number + 3-line summary.
 3. **Gate — CI and review run concurrently:**
    - **CI**: `gh pr checks <pr> --watch` bounded by a ~25-min timeout. Green → pass. Failing checks → **fix subagent**, re-watch. Stalled/queued past the timeout → treat as blocked (circuit breaker). If the repo enforces branch protection, a "merge blocked by required review" state is *not* fixable by a subagent → flag needs-human.
    - **Review**: spawn a **review subagent** (`review` skill by name, fixed point = `main`). Independent eyes — the implementer does **not** review its own work. Blocking findings → route to the **fix subagent** (same machinery as CI-red).
@@ -78,5 +88,5 @@ Read the run-start SHA from the parent. Each step runs as a subagent → PR → 
 - Never merge with red CI or unresolved blocking review findings.
 - Never push to `main` directly; never start an issue from a dirty tree.
 - Never close the parent while a non-blocked child is still open.
-- Reference skills **by name** (`implement`, `tdd`, `review`, `improve-codebase-architecture`) so project overrides win — never by hardcoded path.
+- Reference skills **by name** (`tdd`, `review`, `improve-codebase-architecture`) so project overrides win — never by hardcoded path.
 - Default models/effort: **Opus, medium effort** for all roles (tune per run as needed). The orchestrator's own model = the session model (launch on a capable model; it stays thin).

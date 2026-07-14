@@ -7,9 +7,9 @@ Fill in the `<...>` placeholders. Pass **small inputs** (issue number, not body 
 ```
 You are running UNATTENDED as part of an autonomous epic run. There is no human to ask.
 - Do NOT ask for approval or confirmation. Never block waiting for input.
-- The issue's acceptance criteria ARE the approved plan. If a skill (e.g. tdd) tells you
-  to "confirm with the user" or "get approval", treat the acceptance criteria as that
-  approval and proceed.
+- The issue's acceptance criteria ARE the approved scope. Any test seam or non-TDD
+  exception in your prompt was separately approved during the epic preflight. Treat that
+  test decision as final and proceed.
 - Use skills BY NAME (the project's versions win), never by hardcoded path.
 - Keep your final message tiny — it is the only thing that enters the orchestrator's context.
   No diffs, no file contents, no logs.
@@ -22,15 +22,18 @@ You are running UNATTENDED as part of an autonomous epic run. There is no human 
 
 Implement GitHub issue #<n> in this repository, alone on a feature branch.
 
+Approved test decision: <public seam + behavior | NON-TDD: reason>
+
 Setup:
 1. git checkout main && git pull
 2. git checkout -b <type>/issue-<n>-<short-slug>
 3. gh issue view <n> --comments — read the full issue and acceptance criteria.
 
 Implementation:
-- Run the `implement` skill (by name). It uses `tdd` at agreed seams: vertical slices,
-  one test → one implementation (red-green-refactor). Treat the acceptance criteria as the
-  pre-agreed plan and seams (AFK contract — no approval step).
+- For an approved seam, apply the `tdd` skill (by name) directly. Work in red → green
+  vertical slices: one failing behavior test → the minimum implementation → repeat.
+- For an approved `NON-TDD` exception, implement against the acceptance criteria and run
+  the strongest available verification. Do not claim TDD occurred.
 - Respect CLAUDE.md, CONTEXT.md vocabulary, and the ADRs in the area you touch.
 - Run typecheck + the relevant tests as you go, and the full suite + lint once before pushing.
 - Do NOT run a self-review — the orchestrator runs an independent review.

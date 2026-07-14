@@ -22,6 +22,9 @@ Design highlights:
 - **Dependency-aware.** Children are processed in topological order parsed from
   each issue's `## Blocked by` section; dependents of a blocked issue are
   auto-skipped.
+- **Human-approved test seams.** Before the AFK run mutates anything, one
+  preflight confirms the public seam for every child—or an explicit non-TDD
+  exception—and persists the map in GitHub for recovery.
 - **Circuit breaker.** After a configurable number of attempts (incl. one
   re-plan), an issue is marked `blocked` and the run moves on.
 - **Independent review.** Review runs as a separate subagent (not self-review),
@@ -40,8 +43,7 @@ live in [Matt Pocock's skills repo](https://github.com/mattpocock/skills):
 
 | Skill | Role |
 | --- | --- |
-| `implement` | Implements a slice (uses `tdd` at seams), then commits |
-| `tdd` | Red-green-refactor, vertical slices |
+| `tdd` | Red → green implementation at pre-approved seams, one vertical slice at a time |
 | `review` | Two-axis (Standards + Spec) diff review |
 | `improve-codebase-architecture` | Architecture pass in the epilogue |
 
@@ -68,8 +70,8 @@ npx skills add nikolasbarwicki/skills --list
 npx skills add nikolasbarwicki/skills --skill ship-epic
 ```
 
-**Heads up:** `ship-epic` invokes its companion skills (`implement`, `tdd`,
-`review`, `improve-codebase-architecture`) by name — installing `ship-epic`
+**Heads up:** `ship-epic` invokes its companion skills (`tdd`, `review`,
+`improve-codebase-architecture`) by name — installing `ship-epic`
 alone does not pull them. Add them separately from
 [Matt Pocock's skills repo](https://github.com/mattpocock/skills).
 
