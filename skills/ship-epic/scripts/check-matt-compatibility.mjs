@@ -19,6 +19,16 @@ for (const name of ["tdd", "code-review"]) {
 
   const contents = readFileSync(skill, "utf8");
   const frontmatter = contents.match(/^---\s*\n([\s\S]*?)\n---(?:\s*\n|$)/)?.[1] ?? "";
+  const declaredName = frontmatter.match(
+    /^name:\s*["']?([^"'#\s]+)["']?\s*$/m,
+  )?.[1];
+  if (declaredName !== name) {
+    console.error(
+      `${name} declares name "${declaredName ?? "<missing>"}"; expected "${name}"`,
+    );
+    process.exit(1);
+  }
+
   if (/^disable-model-invocation:\s*true\s*$/m.test(frontmatter)) {
     console.error(
       `${name} is user-only in Claude: disable-model-invocation must not be true`,

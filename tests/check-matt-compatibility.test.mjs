@@ -23,11 +23,18 @@ test("accepts model-invocable tdd and code-review skills", () => {
   assert.match(result.stdout, /compatible/i);
 });
 
-test("rejects the obsolete review name", () => {
-  const result = run("renamed-review");
+test("rejects a missing companion", () => {
+  const result = run("missing-code-review");
 
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /Missing required companion skill: code-review/);
+});
+
+test("rejects a renamed companion declared at the expected path", () => {
+  const result = run("renamed-review");
+
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /code-review.*declares name "review"/i);
 });
 
 test("rejects a Claude user-only companion", () => {
