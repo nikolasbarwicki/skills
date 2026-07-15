@@ -9,7 +9,7 @@ You are the **orchestrator**. You never write code, read implementation files, o
 
 **Arguments**: `/ship-epic <parent-issue> [start-issue]` — parent epic issue number; optional child issue to start from (default: first in dependency order).
 
-**Requires** these companion skills, invoked by name: `tdd`, `review`, `improve-codebase-architecture`. See the repo README for where to get them.
+**Requires** these companion skills, invoked by name: `tdd`, `code-review`, `improve-codebase-architecture`. See the repo README for where to get them.
 
 ## Durability: state lives in GitHub, not in context
 
@@ -23,7 +23,7 @@ Your context **will** be compacted on a long run. Auto-compact preserves the sys
 
 1. **Re-read** [prompts.md](prompts.md) (it does not survive compaction) and skim this file.
 2. `gh issue view <parent> --comments` + `gh issue list` → re-derive run-start SHA, dependency order, approved test decisions, what's merged, and what's blocked. Copy the recovered seam or `NON-TDD` exception into the next implementer prompt.
-3. **Reconcile real state** for the issue you think is "next": `gh pr list --search "Closes #<n>" --state all`. If an open PR already exists, resume from **CI gate** (step 3 of the loop), do *not* re-implement. Trust GitHub over your memory.
+3. **Reconcile real state** for the issue you think is "next": `gh pr list --search "Closes #<n>" --state all`. If an open PR already exists, read its current head SHA and latest `ship-epic review gate` comment, then resume from **Gate** (step 3 of the loop); reuse a clean review only when its recorded SHA matches the current head. Trust GitHub over your memory.
 
 ### What goes to GitHub
 
@@ -63,12 +63,23 @@ For each child in dependency order:
 
 1. **Clean-state guard + sync**: ensure a clean tree on `main`. If a previous attempt left the working tree dirty or on a feature branch, discard its uncommitted changes, then `git checkout main && git pull`. The orchestrator must always start an issue from a clean `main`. (Single shared tree, serial — parallel worktree execution is a separate, more advanced mode.)
 2. **Implement** (subagent): spawn a `general-purpose` subagent with the **implementer** prompt from [prompts.md](prompts.md), including that ticket's approved seam or `NON-TDD` exception. It branches from main, applies `tdd` **by name** at an approved seam using red → green vertical slices, or follows the approved exception without claiming TDD. It commits, pushes, opens a PR with `Closes #<n>`, and returns only the PR number + 3-line summary.
-3. **Gate — CI and review run concurrently:**
-   - **CI**: `gh pr checks <pr> --watch` bounded by a ~25-min timeout. Green → pass. Failing checks → **fix subagent**, re-watch. Stalled/queued past the timeout → treat as blocked (circuit breaker). If the repo enforces branch protection, a "merge blocked by required review" state is *not* fixable by a subagent → flag needs-human.
-   - **Review**: spawn a **review subagent** (`review` skill by name, fixed point = `main`). Independent eyes — the implementer does **not** review its own work. Blocking findings → route to the **fix subagent** (same machinery as CI-red).
-4. **Merge** (only when CI green *and* review clean): `gh pr merge <pr> --squash --delete-branch`, then `git checkout main && git pull`.
+3. **Gate — the root orchestrator owns CI and review:**
+   - Resolve the PR's current head SHA. Start the bounded `gh pr checks <pr> --watch` and root-level review concurrently when background execution is available; otherwise finish CI first, then review.
+   - **CI**: green → pass. Failing checks → **fix subagent**. Stalled/queued past ~25 minutes → treat as blocked (circuit breaker). A branch-protection requirement for human approval is needs-human, not a fixer task.
+   - **Review**: from deterministic checkout context for the PR branch, apply `code-review` **in the root thread** with fixed point `main` and issue `#<n>` as the explicit Spec source. The skill spawns its own independent Standards and Spec agents; never wrap it in another reviewer subagent.
+   - Classify and persist the result using **Review gate policy** below. Blocking findings → **fix subagent**. After any fixer push, discard both gate results and restart step 3 against the new head SHA.
+4. **Merge** (only when CI is green and the matching-head review verdict is clean): `gh pr merge <pr> --squash --delete-branch`, then `git checkout main && git pull`.
 5. **Record**: merge comment on the parent (format above).
 6. Next issue → step 1.
+
+### Review gate policy — SHA-bound
+
+Keep the Standards and Spec axes separate:
+
+- **Blocking**: missing, partial, incorrect, or out-of-scope Spec behavior; violations of documented repository standards. Route every blocking finding to the fixer.
+- **Advisory**: Fowler smell-baseline judgments. Record at most three concise bullets; they neither block nor route to the fixer automatically.
+
+Post or update one PR comment using the **review gate comment** template in [prompts.md](prompts.md). A `CLEAN` result is valid only when its recorded head SHA equals the PR's current head SHA. Any new commit invalidates it and requires green CI plus fresh Standards and Spec reviews.
 
 ### Circuit breaker — skip, don't loop forever
 
@@ -81,17 +92,17 @@ An issue is done when its PR is merged. On failure (subagent error, CI stays red
 
 ## Epilogue — after the last *reachable* issue is merged
 
-Read the run-start SHA from the parent. Each step runs as a subagent → PR → CI green → review clean → merge → pull main:
+Read the run-start SHA from the parent. The root owns review; every mutating epilogue pass or review fix runs as a subagent → PR → CI green → review clean → merge → pull main:
 
 1. **Architecture pass**: `improve-codebase-architecture` skill (by name) over `git diff <run-start-sha>..origin/main`. Implement important suggestions; skip nice-to-haves.
-2. **Review pass**: `review` skill (by name) over the same range. Implement important findings.
+2. **Review pass**: at the root, apply `code-review` with fixed point `<run-start-sha>` and the parent issue as explicit Spec context. Persist the two-axis verdict on the parent keyed to the reviewed `origin/main` SHA. Blocking findings → spawn the **epilogue review fixer** from [prompts.md](prompts.md), then gate its PR using the normal child-PR policy. Advisories are reported only.
 3. **Structure pass**: reorganize into clean vertical slices per the repo's structure convention (e.g. a structure ADR, if the project has one). Pure moves + import updates, no behavior change; CI is the safety net.
 4. **Close out**: `gh issue close <parent> --comment "…"` summarizing issues shipped, PRs merged, and — explicitly — **blocked/skipped issues that need a human** and follow-ups deliberately skipped.
 
 ## Hard gates (non-negotiable)
 
-- Never merge with red CI or unresolved blocking review findings.
+- Never merge with red CI, unresolved blocking review findings, or a clean review recorded for an older head SHA.
 - Never push to `main` directly; never start an issue from a dirty tree.
 - Never close the parent while a non-blocked child is still open.
-- Reference skills **by name** (`tdd`, `review`, `improve-codebase-architecture`) so project overrides win — never by hardcoded path.
+- Reference skills **by name** (`tdd`, `code-review`, `improve-codebase-architecture`) so project overrides win — never by hardcoded path.
 - Default models/effort: **Opus, medium effort** for all roles (tune per run as needed). The orchestrator's own model = the session model (launch on a capable model; it stays thin).

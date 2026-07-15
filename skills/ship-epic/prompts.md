@@ -1,6 +1,6 @@
-# Subagent prompt templates
+# Orchestration templates
 
-Fill in the `<...>` placeholders. Pass **small inputs** (issue number, not body — the subagent reads it itself) and require **small returns** (PR number + ≤3 lines). Every subagent prompt must open with the AFK contract.
+Fill in the `<...>` placeholders. Pass **small inputs** (issue number, not body — the subagent reads it itself) and require **small returns** (PR number + ≤3 lines). Every subagent prompt must open with the AFK contract; the review gate comment is durable GitHub state rather than a subagent prompt.
 
 ## AFK contract (prepend to every prompt)
 
@@ -50,16 +50,28 @@ Return ONLY: the PR number, then ≤3 lines (what was built, key area touched, a
 orchestrator must know). No diffs or file contents.
 ```
 
-## Reviewer (independent, runs concurrently with CI)
+## Review gate comment
 
 ```
-<AFK contract>
+## ship-epic review gate
 
-Review PR #<pr> for issue #<n>. Run the `review` skill (by name) with fixed point `main`
-(diff: git diff main...HEAD on branch <branch>). It checks two axes: Standards and Spec.
+- Head: `<reviewed-head-sha>`
+- Fixed point: `<main | run-start-sha>`
+- Verdict: `<CLEAN | BLOCKING>`
+- Standards: `<blocking count>`
+- Spec: `<blocking count>`
 
-Return ONLY: a verdict line `BLOCKING` or `CLEAN`, then for BLOCKING up to 5 bullets — each
-the file + the one-line problem (Standards or Spec). No essays. If CLEAN, just say so.
+### Standards blocking findings
+
+<all documented-standard violations, or "None">
+
+### Spec blocking findings
+
+<all missing, incorrect, or out-of-scope Spec behavior, or "None">
+
+### Advisories
+
+<up to three Fowler smell judgments, or "None">
 ```
 
 ## CI fixer (also used for blocking review findings)
@@ -99,13 +111,13 @@ product decision, external credential, or blocked upstream), say `RECOMMEND BLOC
 so the orchestrator can trip the circuit breaker. Do not write code.
 ```
 
-## Epilogue passes (architecture / review)
+## Architecture epilogue
 
 ```
 <AFK contract>
 
-Run the `<improve-codebase-architecture | review>` skill (by name) against the changes in:
-git diff <run-start-sha>..origin/main  (for `review`, fixed point = <run-start-sha>)
+Run the `improve-codebase-architecture` skill (by name) against the changes in:
+git diff <run-start-sha>..origin/main
 
 Then implement the IMPORTANT findings only (correctness, structure, depth — skip cosmetic
 nits). Work on a branch <chore/...> from latest main, run tests + lint, push, open a PR
@@ -113,4 +125,24 @@ against main titled "<chore: … (epic #<parent>)>".
 
 Return ONLY: the PR number and a short bullet list of findings implemented vs skipped
 (one-line reason each).
+```
+
+## Epilogue review fixer
+
+```
+<AFK contract>
+
+The root `code-review` pass for epic #<parent> found blocking issues over
+<run-start-sha>...origin/main.
+
+1. git checkout main && git pull
+2. git checkout -b fix/epic-<parent>-review-findings
+3. Fix every blocking finding below without expanding into advisory cleanup.
+4. Run relevant tests as you work, then the full suite + lint.
+5. Commit, push, and open a PR against main titled "fix: address review findings (epic #<parent>)".
+
+Blocking findings:
+<Standards and Spec findings, kept under separate headings>
+
+Return ONLY: the PR number and ≤3 lines summarizing the fixes.
 ```
