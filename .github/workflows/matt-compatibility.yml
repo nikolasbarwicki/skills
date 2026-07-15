@@ -1,0 +1,40 @@
+name: Matt skills compatibility
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/matt-compatibility.yml"
+      - "README.md"
+      - "skills/ship-epic/**"
+      - "tests/**"
+  schedule:
+    - cron: "17 7 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  compatibility:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out ship-epic
+        uses: actions/checkout@v4
+
+      - name: Check out current Matt skills
+        uses: actions/checkout@v4
+        with:
+          repository: mattpocock/skills
+          ref: main
+          path: upstream/matt-skills
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Run contract and fixture tests
+        run: node --test tests/*.test.mjs
+
+      - name: Check current upstream contract
+        run: node skills/ship-epic/scripts/check-matt-compatibility.mjs upstream/matt-skills

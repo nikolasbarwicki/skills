@@ -1,62 +1,59 @@
-# Orchestration templates
+# Worker templates
 
-Fill in the `<...>` placeholders. Pass **small inputs** (issue number, not body — the subagent reads it itself) and require **small returns** (PR number + ≤3 lines). Every subagent prompt must open with the AFK contract; the review gate comment is durable GitHub state rather than a subagent prompt.
+Fill every `<...>` placeholder. Give workers small inputs and require small returns. Prepend the AFK contract to every worker prompt.
 
-## AFK contract (prepend to every prompt)
+## AFK contract
 
-```
-You are running UNATTENDED as part of an autonomous epic run. There is no human to ask.
-- Do NOT ask for approval or confirmation. Never block waiting for input.
-- The issue's acceptance criteria ARE the approved scope. Follow them without reopening
-  product decisions.
-- Use skills BY NAME (the project's versions win), never by hardcoded path.
-- Keep your final message tiny — it is the only thing that enters the orchestrator's context.
-  No diffs, no file contents, no logs.
+```text
+You are running unattended inside an approved epic run.
+- Work only within the supplied issue, approved test decision, branch, and checkout.
+- Use model-invocable skills by name so project overrides win.
+- Use applicable repository instructions, domain vocabulary, and ADRs.
+- Return a capability or permission failure immediately; never wait for approval or clarification.
+- Return only the requested compact result—no diffs, file contents, logs, or transcripts.
 ```
 
 ## Implementer
 
-```
+```text
 <AFK contract>
 
-Implement GitHub issue #<n> in this repository, alone on a feature branch.
+Implement GitHub issue #<n> in the leased checkout.
 
+Default branch: <default-branch>
 Approved test decision: <public seam + behavior | NON-TDD: reason>
 
-This test decision was separately approved during the epic preflight. Treat it as final.
+The test decision was separately approved during epic preflight. Treat it as final.
 
 Setup:
-1. git checkout main && git pull
-2. git checkout -b <type>/issue-<n>-<short-slug>
-3. gh issue view <n> --comments — read the full issue and acceptance criteria.
+1. Fetch origin and require a clean checkout at origin/<default-branch>.
+2. Create <type>/issue-<n>-<short-slug> from origin/<default-branch>.
+3. Read the complete issue and its comments.
 
 Implementation:
-- For an approved seam, apply the `tdd` skill (by name) directly. Work in red → green
-  vertical slices: one failing behavior test → the minimum implementation → repeat.
-- For an approved `NON-TDD` exception, implement against the acceptance criteria and run
-  the strongest available verification. Do not claim TDD occurred.
-- Respect CLAUDE.md, CONTEXT.md vocabulary, and the ADRs in the area you touch.
-- Run typecheck + the relevant tests as you go, and the full suite + lint once before pushing.
-- Do NOT run a self-review — the orchestrator runs an independent review.
-<retry-context: on retries only, add 2-3 lines: what attempt N tried, why it failed,
- and — after a re-plan — the new approach to take instead.>
+- For an approved seam, apply `tdd` by name. Work in red → green vertical slices:
+  one failing behavior test, the minimum passing implementation, then repeat.
+- For an approved NON-TDD exception, implement against the acceptance criteria and run
+  the strongest available verification. Never claim TDD occurred.
+- Run relevant checks during implementation and the full documented suite once before push.
+- Leave independent review to the root orchestrator.
 
 Finish:
-1. Commit with a conventional message referencing the issue.
-2. git push -u origin <branch>
-3. gh pr create --base main --title "<type>: <title> (#<n>)" --body "...Closes #<n>..."
+1. Commit conventionally with the issue number.
+2. Push the feature branch.
+3. Open a PR to <default-branch> with `Closes #<n>` in its body.
 
-Return ONLY: the PR number, then ≤3 lines (what was built, key area touched, anything the
-orchestrator must know). No diffs or file contents.
+Return only the PR number and at most three lines: what changed, key area, and any
+orchestrator-relevant caveat.
 ```
 
 ## Review gate comment
 
-```
+```text
 ## ship-epic review gate
 
 - Head: `<reviewed-head-sha>`
-- Fixed point: `<main | run-start-sha>`
+- Fixed point: `<origin/default-branch | run-start-sha>`
 - Verdict: `<CLEAN | BLOCKING>`
 - Standards: `<blocking count>`
 - Spec: `<blocking count>`
@@ -74,59 +71,60 @@ orchestrator must know). No diffs or file contents.
 <up to three Fowler smell judgments, or "None">
 ```
 
-## CI fixer (also used for blocking review findings)
+## CI or review fixer
 
-```
+```text
 <AFK contract>
 
-PR #<pr> (branch <branch>) for issue #<n> needs fixes.
+PR #<pr> on <branch> for issue #<n> needs fixes.
 
-1. git checkout <branch> && git pull
-2. For CI: gh pr checks <pr> → fetch failing logs with gh run view <run-id> --log-failed.
-   For review findings: the orchestrator lists them below.
-3. Fix the ROOT CAUSE. Do not delete or weaken tests to make CI pass — if a test is genuinely
-   wrong, fix it and say so in the commit message.
-4. Run the failing checks (and relevant tests) locally until green, then push to the same branch.
+1. Fetch origin and switch to <branch> at its current remote head.
+2. For CI, inspect failing checks and their failed logs. For review, use the blocking
+   Standards and Spec findings supplied below.
+3. Fix the root cause without deleting or weakening valid tests.
+4. Run relevant checks until green, then push to the same branch.
 
-Failing checks / blocking findings from orchestrator:
-<one line each>
+Blocking evidence:
+<one concise item per failure or finding, preserving Standards and Spec headings>
 
-Return ONLY: 2-3 lines — root cause, what changed, confidence it's fixed.
+Return only two or three lines: root cause, change, and confidence.
 ```
 
-## Re-planner (after 2 failed attempts)
+## Re-planner
 
-```
+```text
 <AFK contract>
 
-Issue #<n> has failed 2 implementation attempts. Diagnose and propose a DIFFERENT approach.
+Issue #<n> has failed two attempts on branch <branch>.
 
-1. gh issue view <n> --comments — note the failed-attempt comments.
-2. Inspect the branch diff (git diff main...<branch>) and the latest CI failure logs.
-3. Decide: under-specified issue, wrong approach, or environmental/test-infra problem?
+Default branch: <default-branch>
 
-Return ONLY: a concise plan (≤10 lines) for a fresh attempt — what to do differently and why
-it will succeed. If you conclude the issue is genuinely un-shippable autonomously (needs a
-product decision, external credential, or blocked upstream), say `RECOMMEND BLOCK: <reason>`
-so the orchestrator can trip the circuit breaker. Do not write code.
+1. Read the issue and failed-attempt comments.
+2. Inspect origin/<default-branch>...<branch> and the latest CI/review evidence.
+3. Classify the failure as under-specified scope, wrong approach, permissions/capability,
+   or environment/test infrastructure.
+
+Return only a different plan of at most ten lines. If autonomous delivery is genuinely
+impossible, return `RECOMMEND BLOCK: <reason>`. Do not write code.
 ```
 
 ## Epilogue review fixer
 
-```
+```text
 <AFK contract>
 
-The root `code-review` pass for epic #<parent> found blocking issues over
-<run-start-sha>...origin/main.
+The root epic review for #<parent> found blocking issues over
+<run-start-sha>...origin/<default-branch>.
 
-1. git checkout main && git pull
-2. git checkout -b fix/epic-<parent>-review-findings
-3. Fix every blocking finding below without expanding into advisory cleanup.
-4. Run relevant tests as you work, then the full suite + lint.
-5. Commit, push, and open a PR against main titled "fix: address review findings (epic #<parent>)".
+1. Fetch origin and require a clean checkout at origin/<default-branch>.
+2. Create fix/epic-<parent>-review-findings from origin/<default-branch>.
+3. Fix every blocking finding without expanding into advisory cleanup.
+4. Run relevant checks during work and the full documented suite once.
+5. Commit, push, and open a PR to <default-branch> titled
+   "fix: address review findings (epic #<parent>)".
 
 Blocking findings:
-<Standards and Spec findings, kept under separate headings>
+<Standards and Spec findings under separate headings>
 
-Return ONLY: the PR number and ≤3 lines summarizing the fixes.
+Return only the PR number and at most three lines summarizing the fixes.
 ```

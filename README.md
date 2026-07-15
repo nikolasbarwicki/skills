@@ -1,107 +1,76 @@
 # skills
 
-Agent skills for [Claude Code](https://code.claude.com), built in the style of
-[Matt Pocock's skills](https://github.com/mattpocock/skills).
+Open Agent Skills built in the style of [Matt Pocock's skills](https://github.com/mattpocock/skills).
 
-## Skills
+## `ship-epic`
 
-### `ship-epic`
+Explicitly invoke `ship-epic` with a GitHub parent issue. It resolves reachable children in dependency order, obtains one test-seam approval, implements each child through a bounded worker, gates every PR on CI plus independent Standards/Spec review, merges serially, and closes with one epic-wide review.
 
-Autonomously ship an entire GitHub epic end to end. You give it a parent/epic
-issue; it resolves the child issues' dependency order, implements each one in a
-fresh subagent (test-first), opens a PR, gates on CI **and** an independent
-review, merges, and repeats — then runs one epic-wide review and closes the
-parent. Genuinely-blocked issues are **skipped with a report**, not looped on
-forever, so an unattended (AFK) run finishes gracefully.
+The core workflow is harness-neutral: it requires capabilities without detecting a vendor or naming a vendor's tools. Serial execution is the portable baseline; genuinely blocked children are recorded and skipped so an unattended run can finish.
 
-Design highlights:
+### Support matrix
 
-- **Thin orchestrator.** The main thread never writes code — it spawns
-  subagents and gates. All resumable state lives in GitHub, so the run survives
-  context compaction over multi-hour sessions.
-- **Dependency-aware.** Children are processed in topological order parsed from
-  each issue's `## Blocked by` section; dependents of a blocked issue are
-  auto-skipped.
-- **Human-approved test seams.** Before the AFK run mutates anything, one
-  preflight confirms the public seam for every child—or an explicit non-TDD
-  exception—and persists the map in GitHub for recovery.
-- **Circuit breaker.** After a configurable number of attempts (incl. one
-  re-plan), an issue is marked `blocked` and the run moves on.
-- **Independent review.** The root orchestrator applies `code-review`, which
-  isolates Standards and Spec in separate agents. Its SHA-bound verdict runs
-  concurrently with CI where supported and is never self-review.
+| Harness | Status | Invocation | Notes |
+| --- | --- | --- | --- |
+| Codex in the ChatGPT desktop app | Runtime-verified | `$ship-epic` | Preflight smoke verified with Codex CLI `0.144.4`; task worktrees may start detached. |
+| Claude Code | Contract-verified | `/ship-epic` | Checked against current official docs; no live Claude smoke ran in this release. |
+| Other Open Agent Skills harnesses | Unverified | Harness-specific | May run when every capability preflight check passes; no support claim yet. |
 
-Usage:
+See the [Codex](skills/ship-epic/references/codex.md) and [Claude Code](skills/ship-epic/references/claude-code.md) compatibility guides for setup, permissions, delegation, and checkout limitations.
 
-```
-/ship-epic <parent-issue> [start-issue]
-```
+Hosted ChatGPT Work is a different execution environment and is not verified or supported by this release.
 
-#### Companion skills (required)
+### Required companion skills
 
-`ship-epic` invokes these skills **by name**. Install them too — the originals
-live in [Matt Pocock's skills repo](https://github.com/mattpocock/skills):
+`ship-epic` invokes these model-invocable skills by name:
 
 | Skill | Role |
 | --- | --- |
-| `tdd` | Red → green implementation at pre-approved seams, one vertical slice at a time |
-| `code-review` | Two-axis Standards + Spec review in independent agents |
+| `tdd` | Red → green implementation at human-approved seams |
+| `code-review` | Independent Standards and Spec review from a fixed point |
 
-You can substitute your own equivalently-named skills; `ship-epic` references
-them by name so your project's versions win automatically.
+The validated baseline is Matt Pocock skills `1.1.0`, audited at commit [`e9fcdf95`](https://github.com/mattpocock/skills/commit/e9fcdf95b402d360f90f1db8d776d5dd450f9234). Newer versions are allowed; this repository checks current upstream names and invocation policies on pull requests and weekly.
 
-#### Optional architecture follow-up
-
-Architecture exploration is deliberately separate from the unattended epic
-run. After the parent closes, `ship-epic` offers a human-led follow-up when the
-epic merged at least one related PR. Explicitly invoke
-`improve-codebase-architecture` and give it the recorded child and epic-review
-fixer PRs. Their combined diffs are its initial hot paths; it may inspect
-surrounding modules needed to understand them.
-
-This optional workflow has its own upstream dependencies:
-`improve-codebase-architecture`, `codebase-design`, `grilling`, and
-`domain-modeling`. Install them from
-[Matt Pocock's skills repo](https://github.com/mattpocock/skills) before invoking
-the follow-up. They are not required or checked by `ship-epic`.
+Architecture exploration is a separate, explicitly human-led follow-up. If an epic merged related PRs, its closeout offers `improve-codebase-architecture`. That optional workflow requires `improve-codebase-architecture`, `codebase-design`, `grilling`, and `domain-modeling`; none is invoked or required by `ship-epic`.
 
 ## Install
 
-The quickest way is the [`skills`](https://github.com/vercel-labs/skills) CLI,
-which copies the skill into `.claude/skills/` for you:
+Use the [`skills`](https://github.com/vercel-labs/skills) CLI and target the active harness explicitly.
+
+### Codex
 
 ```bash
-# project-local (./.claude/skills/)
-npx skills add nikolasbarwicki/skills
-
-# or globally (~/.claude/skills/)
-npx skills add -g nikolasbarwicki/skills
+npx skills add nikolasbarwicki/skills --skill ship-epic --agent codex
+npx skills add mattpocock/skills --skill tdd --skill code-review --agent codex
 ```
 
-List or pick specific skills:
+Project skills install under `.agents/skills/`; global Codex skills use `~/.codex/skills/` with `--global`.
+
+### Claude Code
+
+```bash
+npx skills add nikolasbarwicki/skills --skill ship-epic --agent claude-code
+npx skills add mattpocock/skills --skill tdd --skill code-review --agent claude-code
+```
+
+Project skills install under `.claude/skills/`; global Claude Code skills use `~/.claude/skills/` with `--global`.
+
+List available skills before installing:
 
 ```bash
 npx skills add nikolasbarwicki/skills --list
-npx skills add nikolasbarwicki/skills --skill ship-epic
 ```
 
-**Heads up:** `ship-epic` invokes its companion skills (`tdd` and `code-review`)
-by name — installing `ship-epic` alone does not pull them. Add them separately from
-[Matt Pocock's skills repo](https://github.com/mattpocock/skills).
+## Compatibility check
 
-### Manual install
-
-Skills are also discovered from `~/.claude/skills/` (user) or a repo's
-`.claude/skills/` (project). Symlink the skill you want:
+Clone Matt's repository and run the dependency-free checker:
 
 ```bash
-git clone https://github.com/nikolasbarwicki/skills.git
-ln -s "$PWD/skills/skills/ship-epic" ~/.claude/skills/ship-epic
+node skills/ship-epic/scripts/check-matt-compatibility.mjs /path/to/mattpocock-skills
 ```
 
-Then invoke it in Claude Code with `/ship-epic`.
+It fails when `tdd` or `code-review` is missing or becomes user-only in either Claude Code or Codex. It does not run during `ship-epic` execution.
 
 ## License
 
-[MIT](./LICENSE). The companion skills are authored by Matt Pocock and licensed
-under his repository's terms — this repo only links to them.
+[MIT](./LICENSE). Matt Pocock authored the companion skills; they remain under his repository's terms.

@@ -1,110 +1,120 @@
 ---
 name: ship-epic
-description: Ship every reachable child issue in a GitHub epic autonomously. Use when the user wants to implement a whole parent/epic issue, e.g. "/ship-epic 28", "/ship-epic 28 30", or "implement the whole epic in #28".
+description: Ship every reachable child issue in a GitHub epic through tested, reviewed pull requests.
+disable-model-invocation: true
 ---
 
 # Ship Epic
 
-You are the **orchestrator**. You never write code, read implementation files, or debug in the main thread — you resolve issue order, spawn subagents, gate on CI + review, merge, and record progress to GitHub. Staying thin is what lets this run unattended (AFK) for hours.
+Act as the **orchestrator**. Keep the root thread thin: resolve order, delegate bounded work, gate CI and review, merge, and persist state. Leave implementation, diagnosis, and large outputs to workers.
 
-**Arguments**: `/ship-epic <parent-issue> [start-issue]` — parent epic issue number; optional child issue to start from (default: first in dependency order).
+**Arguments**: `<parent-issue> [start-issue]` — a parent epic issue number and an optional reachable child to start from.
 
-**Requires** these companion skills, invoked by name: `tdd`, `code-review`. See the repo README for where to get them.
+**Requires** model-invocable companion skills named `tdd` and `code-review`.
 
-## Durability: state lives in GitHub, not in context
+Use one capability-based workflow in every harness. Compatibility setup lives in [references/codex.md](references/codex.md) and [references/claude-code.md](references/claude-code.md); those guides do not change the runtime flow.
 
-Your context **will** be compacted on a long run. Auto-compact preserves the system prompt, project memory files, and *this SKILL.md body* — but **not** `prompts.md` (a file read) and **not** large tool outputs. So:
+## Capability preflight — before mutation
 
-- Keep subagent returns tiny (PR number + 3 lines). Never pull diffs, CI logs, or file contents into the main thread — that's what subagents are for. This keeps compaction rare.
-- All resumable facts go to GitHub, never only to memory.
-- **Recovery is a routine path, not an exception.** Whenever the `prompts.md` templates are not visibly in your context (e.g. just after a compaction or in a fresh session), run **Recovery** before acting.
+Complete every check before recording run-start state or changing implementation code:
 
-### Recovery procedure
+1. Confirm `tdd` and `code-review` exist and are model-invocable. A user-only companion is unavailable.
+2. Confirm the root can delegate a bounded worker and has capacity for the two direct review workers that `code-review` creates. Review always runs at root.
+3. Confirm the active permission posture allows unattended workspace edits, git writes, and GitHub network operations. Any operation that would wait for human approval fails preflight.
+4. Confirm `git` and `gh` exist; the GitHub remote, authentication, repository access, and push/PR permissions are usable.
+5. Obtain confirmation of an exclusive checkout for this run. Require `git status --porcelain` to be empty, including untracked files; preserve every pre-existing change and stop when it is dirty. Record whether it starts attached or detached.
+6. Discover the default branch from GitHub and fetch `origin`. Require an attached start to use that branch and a detached start to derive from it, then synchronize to current `origin/<default-branch>` while preserving the starting style.
+7. Read the applicable repository instructions and identify the baseline test, typecheck, and lint commands. Run the strongest baseline verification available, restore only outputs created by that verification, and require the checkout to be clean again.
+8. Resolve every reachable child and obtain one explicit approval for the complete test-decision map in **Approve test seams**.
 
-1. **Re-read** [prompts.md](prompts.md) (it does not survive compaction) and skim this file.
-2. `gh issue view <parent> --comments` + `gh issue list` → re-derive run-start SHA, dependency order, approved test decisions, what's merged, and what's blocked. Copy the recovered seam or `NON-TDD` exception into the next implementer prompt.
-3. **Reconcile real state** for the issue you think is "next": `gh pr list --search "Closes #<n>" --state all`. If an open PR already exists, read its current head SHA and latest `ship-epic review gate` comment, then resume from **Gate** (step 3 of the loop) and evaluate the saved result using **Review gate policy**. Trust GitHub over your memory.
+Use observational checks only. Create no sentinel workers, temporary branches, commits, remote refs, pull requests, or other persistent probe artifacts. Print a compact capability report with one row per check. Start only when every row is `PASS`; otherwise stop before implementation.
 
-### What goes to GitHub
+After preflight, the checkout is leased exclusively to this run. Unexpected permission or capability failures enter the circuit breaker; no worker waits indefinitely for a human. Cleanup may reset only changes made after run-start on a recorded run-created attempt branch.
 
-- **Run start** (only after test preflight approval): `git fetch && git rev-parse origin/main` → comment on the parent with the SHA, dependency order, and the approved test-decision table below. The SHA is the fixed point for the epic-wide review, and the table makes recovery independent of conversation context.
+## Durable state
+
+Context may compact or the run may resume in a fresh session. Persist every resumable fact on GitHub and keep worker returns to a PR number plus at most three lines.
+
+### Recovery
+
+1. Re-open this skill and [prompts.md](prompts.md).
+2. Read the parent and child issue comments to recover the run-start SHA, default branch, starting checkout style, dependency order, approved test decisions, merges, and blockers.
+3. Reconcile the next child against GitHub: search all PRs whose body closes it. For an open PR, read its current head SHA and latest `ship-epic review gate` comment, then resume at **Gate**.
+4. Trust recorded GitHub state over conversation memory. Repeat capability preflight only for capabilities whose state may have changed; never repeat test-seam approval already persisted on the parent.
+
+### What goes to the parent
+
+- **Run start**: record the current `origin/<default-branch>` SHA, default branch, attached/detached starting style, dependency order, and approved test-decision table.
 
   | Issue | Mode | Public seam | Observed behavior | Exception reason |
   | --- | --- | --- | --- | --- |
   | #30 | TDD | `<interface>` | `<behavior>` | — |
   | #31 | NON-TDD | — | `<verification target>` | `<reason>` |
-- **After every child merge**: comment on parent: `✅ #<n> merged in PR #<pr> (<sha>).`
-- **After every epic review-fixer merge**: comment on parent: `✅ Epic review fixes merged in PR #<pr> (<sha>).` These two merge-comment forms are the exact related-PR set for the optional architecture follow-up.
-- **Failed attempt**: comment on the *child*: `Attempt N failed: <one line>.`
-- **Blocked issue**: comment on the *child* + add the `blocked` label (see circuit breaker).
+- **Child merge**: `✅ #<n> merged in PR #<pr> (<sha>).`
+- **Epic review-fixer merge**: `✅ Epic review fixes merged in PR #<pr> (<sha>).`
 
-## Resolve the dependency order first
+Record failed attempts and blockers on the child issue. The two merge-comment forms are the exact related-PR set for the optional architecture follow-up.
 
-Child issues are **not** processed by issue number. Before the loop:
+## Resolve dependency order
 
-1. Discover children via the parent link (issues whose body `## Parent` references `<parent>`, or the parent's sub-issue/task list).
-2. Parse each child's `## Blocked by` section → build the dependency graph → **topological sort**. Ties broken by issue number.
-3. Print the resolved order (and any cycles — halt and report a cycle, it's a bug in the issues).
+1. Discover children through native sub-issues/task lists or fallback `## Parent` references.
+2. Parse native blocking edges or fallback `## Blocked by` sections.
+3. Topologically sort the graph; break ties by issue number. Stop and report every cycle.
 
-If `[start-issue]` is given, begin there but still respect dependency order for everything after.
+If `[start-issue]` is supplied, start there while preserving dependency order for everything after it.
 
-## Approve test seams before mutation
+## Approve test seams
 
-After resolving the reachable child issues, run one human-in-the-loop preflight before posting the run-start comment, creating a branch, or changing code:
+Before posting run-start state:
 
-1. Read the parent spec and every reachable child ticket.
-2. Propose a compact map for every ticket: the public interface under test and the behavior observed there. Reuse an approved testing strategy from the parent spec where one exists.
-3. Present the complete map once and wait for one explicit user approval.
+1. Read the parent spec and every reachable child.
+2. Propose one row per child: public interface and observed behavior, reusing any parent testing strategy.
+3. Wait for one explicit approval of the complete map.
 
-Every ticket must have either an approved seam or an explicit user-approved `NON-TDD` exception with a reason. One unresolved ticket stops the entire epic before mutation; never infer seam approval from ordinary acceptance criteria. After approval, persist one row per reachable ticket in the parent run-start table above.
+Every child needs an approved seam or an explicit user-approved `NON-TDD` exception with a reason. Acceptance criteria alone never approve a seam.
 
-## Per-issue loop
+## Serial child loop
 
 For each child in dependency order:
 
-1. **Clean-state guard + sync**: ensure a clean tree on `main`. If a previous attempt left the working tree dirty or on a feature branch, discard its uncommitted changes, then `git checkout main && git pull`. The orchestrator must always start an issue from a clean `main`. (Single shared tree, serial — parallel worktree execution is a separate, more advanced mode.)
-2. **Implement** (subagent): spawn a `general-purpose` subagent with the **implementer** prompt from [prompts.md](prompts.md), including that ticket's approved seam or `NON-TDD` exception. It branches from main, applies `tdd` **by name** at an approved seam using red → green vertical slices, or follows the approved exception without claiming TDD. It commits, pushes, opens a PR with `Closes #<n>`, and returns only the PR number + 3-line summary.
-3. **Gate — the root orchestrator owns CI and review:**
-   - Resolve the PR's current head SHA. Start the bounded `gh pr checks <pr> --watch` and root-level review concurrently when background execution is available; otherwise finish CI first, then review.
-   - **CI**: green → pass. Failing checks → **fix subagent**. Stalled/queued past ~25 minutes → treat as blocked (circuit breaker). A branch-protection requirement for human approval is needs-human, not a fixer task.
-   - **Review**: from deterministic checkout context for the PR branch, apply `code-review` **in the root thread** with fixed point `main` and issue `#<n>` as the explicit Spec source. The skill spawns its own independent Standards and Spec agents; never wrap it in another reviewer subagent.
-   - Classify and persist the result using **Review gate policy** below. Blocking findings → **fix subagent**. After any fixer push, restart step 3 and evaluate the new head under that policy.
-4. **Merge** (only when CI is green and **Review gate policy** is satisfied): `gh pr merge <pr> --squash --delete-branch`, then `git checkout main && git pull`.
-5. **Record**: merge comment on the parent (format above).
-6. Next issue → step 1.
+1. **Sync the leased checkout**: fetch `origin`; return to the current `origin/<default-branch>` while preserving the recorded attached/detached style; require a clean tree. On a failed run-created attempt branch, reset only its recorded run-owned changes before syncing.
+2. **Implement**: delegate one bounded worker with the **Implementer** template from [prompts.md](prompts.md), the default branch, and that child's approved test decision. It creates a feature branch from `origin/<default-branch>`, applies `tdd` by name at an approved seam using red → green vertical slices (or follows the approved exception), commits, pushes, and opens a PR with `Closes #<n>`.
+3. **Gate — root owns CI and review**:
+   - Resolve the current PR head SHA. Run bounded CI watching concurrently with root review when supported. Sequential CI then review is the fallback.
+   - Green CI passes. Failing CI routes to a fresh fixer worker. CI stalled beyond the configured bound (default about 25 minutes) enters the circuit breaker.
+   - Apply `code-review` **at root** with fixed point `origin/<default-branch>` and issue `#<n>` as the Spec source. The skill creates its own direct Standards and Spec workers; never wrap it in another worker.
+   - Persist and classify the result under **Review gate policy**. Blocking findings route to a fresh fixer. Any new commit restarts CI and both review axes for the new head.
+4. **Merge** only after green CI and a valid clean review: squash-merge and delete the remote branch, then sync the leased checkout to the new `origin/<default-branch>` using its recorded style.
+5. **Record** the child merge on the parent and continue.
 
 ### Review gate policy — SHA-bound
 
-Keep the Standards and Spec axes separate:
+Keep Standards and Spec separate:
 
-- **Blocking**: missing, partial, incorrect, or out-of-scope Spec behavior; violations of documented repository standards. Route every blocking finding to the fixer.
-- **Advisory**: Fowler smell-baseline judgments. Record at most three concise bullets; they neither block nor route to the fixer automatically.
+- **Blocking**: missing, partial, incorrect, or out-of-scope Spec behavior; violations of documented repository standards.
+- **Advisory**: at most three Fowler smell judgments. Record them without blocking or automatically fixing them.
 
-Post or update one PR comment using the **review gate comment** template in [prompts.md](prompts.md). A `CLEAN` result is valid only when its recorded head SHA equals the PR's current head SHA. Any new commit invalidates it and requires green CI plus fresh Standards and Spec reviews.
+Post or update one PR comment using the **Review gate comment** in [prompts.md](prompts.md). A `CLEAN` verdict is valid only when its recorded head equals the PR's current head.
 
-### Circuit breaker — skip, don't loop forever
+### Circuit breaker
 
-An issue is done when its PR is merged. On failure (subagent error, CI stays red, review blocks):
+- Retry failures with a fresh worker and a two- or three-line summary of the prior attempt.
+- After two failed attempts, delegate the **Re-planner** template, then make one different final attempt.
+- After `max-attempts` (default 3), comment `🚧 blocked: <reason>` on the child, add the `blocked` label, record it on the parent, and continue.
+- Skip every dependent of a blocked child with `skipped: depends on blocked #<n>`.
 
-- Each retry is a **fresh subagent** with a short summary of what the prior attempt tried and why it failed — never the transcript.
-- After **2 failed attempts**, spawn a **re-planner** (prompt in `prompts.md`) for a different approach, then try once more.
-- After **`max-attempts` (default 3, incl. the re-plan attempt)**, **stop**: post a `🚧 blocked: <reason>` comment on the child, add the `blocked` label, note it on the parent, and **move to the next issue**. Do not halt the whole run.
-- **Auto-skip dependents**: when an issue is blocked/skipped, any issue that `## Blocked by` it is also skipped with `skipped: depends on blocked #<n>` — don't waste attempts on work that can't pass.
+## Epilogue
 
-## Epilogue — after the last *reachable* issue is merged
+1. Apply `code-review` at root with fixed point `<run-start-sha>` and the parent as Spec context. Persist the two-axis verdict on the parent for the reviewed `origin/<default-branch>` SHA.
+2. For blocking findings, delegate the **Epilogue review fixer**, gate and merge its PR through the normal policy, record it on the parent, and repeat the epic-wide review. Finish only with `CLEAN` for the current default-branch SHA.
+3. Close the parent after the final review is clean. Wait for closure to succeed.
+4. Derive the exact related-PR set from parent merge comments. Post the durable closeout summary and return it to the user, including shipped issues, related PRs, and blocked/skipped children.
+   - With related PRs, offer explicit human invocation of `improve-codebase-architecture`, initially focused on their combined diffs and allowed to inspect surrounding modules. Create no artifact automatically.
+   - With no related PRs, state that no architecture follow-up applies.
 
-Read the run-start SHA from the parent:
+## Hard gates
 
-1. **Final review**: apply `code-review` at the root with fixed point `<run-start-sha>` and the parent issue as explicit Spec context. Persist the two-axis verdict on the parent keyed to the reviewed `origin/main` SHA. Blocking findings → spawn the **epilogue review fixer** from [prompts.md](prompts.md), gate and merge its PR using the normal child-PR policy, pull `main`, record the fixer PR on the parent using the merge-comment form above, then repeat this step. Advisories are reported only. This step is complete only when the persisted epic-wide verdict is `CLEAN` for the current `origin/main` SHA.
-2. **Close parent**: close the parent only after the final review is clean. Do not attach the closeout offer to the close command; wait for closure to succeed.
-3. **Report after closure**: derive the exact related-PR set from the two merge-comment forms on the parent. Post the durable closeout comment and return the same summary to the user: issues shipped, related PRs merged, and — explicitly — **blocked/skipped issues that need a human**.
-   - When the related-PR set is non-empty, append: `Optional human-led follow-up: explicitly invoke improve-codebase-architecture for epic #<parent>, initially focusing on the combined diffs of related PRs <pr-list>. Inspect surrounding modules as needed.` This is an offer only: create no report, issue, branch, or PR.
-   - When the set is empty, append: `No architecture follow-up applies because this epic merged no related PRs.`
-
-## Hard gates (non-negotiable)
-
-- Never merge with red CI or without satisfying **Review gate policy**.
-- Never push to `main` directly; never start an issue from a dirty tree.
-- Never close the parent while a non-blocked child is still open.
-- Reference companion skills **by name** (`tdd`, `code-review`) so project overrides win — never by hardcoded path.
-- Default models/effort: **Opus, medium effort** for all roles (tune per run as needed). The orchestrator's own model = the session model (launch on a capable model; it stays thin).
+- Merge only with green CI and a SHA-current clean review.
+- Keep `code-review` at root and invoke companions only by name.
+- Preserve pre-existing checkout changes and use only the discovered default branch.
+- Close the parent only after every non-blocked reachable child is closed and the epic-wide review is clean.
