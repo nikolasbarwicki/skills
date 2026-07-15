@@ -1,0 +1,6 @@
+interface:
+  display_name: "Ship Epic"
+  short_description: "Ship a GitHub epic through reviewed PRs"
+  default_prompt: "Use $ship-epic to ship every reachable child issue in GitHub epic #28."
+policy:
+  allow_implicit_invocation: false
