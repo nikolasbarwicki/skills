@@ -10,9 +10,9 @@ Agent skills for [Claude Code](https://code.claude.com), built in the style of
 Autonomously ship an entire GitHub epic end to end. You give it a parent/epic
 issue; it resolves the child issues' dependency order, implements each one in a
 fresh subagent (test-first), opens a PR, gates on CI **and** an independent
-review, merges, and repeats — then runs architecture/review/structure epilogue
-passes and closes the parent. Genuinely-blocked issues are **skipped with a
-report**, not looped on forever, so an unattended (AFK) run finishes gracefully.
+review, merges, and repeats — then runs one epic-wide review and closes the
+parent. Genuinely-blocked issues are **skipped with a report**, not looped on
+forever, so an unattended (AFK) run finishes gracefully.
 
 Design highlights:
 
@@ -46,10 +46,24 @@ live in [Matt Pocock's skills repo](https://github.com/mattpocock/skills):
 | --- | --- |
 | `tdd` | Red → green implementation at pre-approved seams, one vertical slice at a time |
 | `code-review` | Two-axis Standards + Spec review in independent agents |
-| `improve-codebase-architecture` | Architecture pass in the epilogue |
 
 You can substitute your own equivalently-named skills; `ship-epic` references
 them by name so your project's versions win automatically.
+
+#### Optional architecture follow-up
+
+Architecture exploration is deliberately separate from the unattended epic
+run. After the parent closes, `ship-epic` offers a human-led follow-up when the
+epic merged at least one related PR. Explicitly invoke
+`improve-codebase-architecture` and give it the recorded child and epic-review
+fixer PRs. Their combined diffs are its initial hot paths; it may inspect
+surrounding modules needed to understand them.
+
+This optional workflow has its own upstream dependencies:
+`improve-codebase-architecture`, `codebase-design`, `grilling`, and
+`domain-modeling`. Install them from
+[Matt Pocock's skills repo](https://github.com/mattpocock/skills) before invoking
+the follow-up. They are not required or checked by `ship-epic`.
 
 ## Install
 
@@ -71,9 +85,8 @@ npx skills add nikolasbarwicki/skills --list
 npx skills add nikolasbarwicki/skills --skill ship-epic
 ```
 
-**Heads up:** `ship-epic` invokes its companion skills (`tdd`, `code-review`,
-`improve-codebase-architecture`) by name — installing `ship-epic`
-alone does not pull them. Add them separately from
+**Heads up:** `ship-epic` invokes its companion skills (`tdd` and `code-review`)
+by name — installing `ship-epic` alone does not pull them. Add them separately from
 [Matt Pocock's skills repo](https://github.com/mattpocock/skills).
 
 ### Manual install

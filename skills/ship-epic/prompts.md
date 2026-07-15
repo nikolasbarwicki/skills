@@ -111,22 +111,6 @@ product decision, external credential, or blocked upstream), say `RECOMMEND BLOC
 so the orchestrator can trip the circuit breaker. Do not write code.
 ```
 
-## Architecture epilogue
-
-```
-<AFK contract>
-
-Run the `improve-codebase-architecture` skill (by name) against the changes in:
-git diff <run-start-sha>..origin/main
-
-Then implement the IMPORTANT findings only (correctness, structure, depth — skip cosmetic
-nits). Work on a branch <chore/...> from latest main, run tests + lint, push, open a PR
-against main titled "<chore: … (epic #<parent>)>".
-
-Return ONLY: the PR number and a short bullet list of findings implemented vs skipped
-(one-line reason each).
-```
-
 ## Epilogue review fixer
 
 ```
