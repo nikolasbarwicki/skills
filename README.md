@@ -27,8 +27,9 @@ Design highlights:
   exception—and persists the map in GitHub for recovery.
 - **Circuit breaker.** After a configurable number of attempts (incl. one
   re-plan), an issue is marked `blocked` and the run moves on.
-- **Independent review.** Review runs as a separate subagent (not self-review),
-  concurrently with the CI wait.
+- **Independent review.** The root orchestrator applies `code-review`, which
+  isolates Standards and Spec in separate agents. Its SHA-bound verdict runs
+  concurrently with CI where supported and is never self-review.
 
 Usage:
 
@@ -44,7 +45,7 @@ live in [Matt Pocock's skills repo](https://github.com/mattpocock/skills):
 | Skill | Role |
 | --- | --- |
 | `tdd` | Red → green implementation at pre-approved seams, one vertical slice at a time |
-| `review` | Two-axis (Standards + Spec) diff review |
+| `code-review` | Two-axis Standards + Spec review in independent agents |
 | `improve-codebase-architecture` | Architecture pass in the epilogue |
 
 You can substitute your own equivalently-named skills; `ship-epic` references
@@ -70,7 +71,7 @@ npx skills add nikolasbarwicki/skills --list
 npx skills add nikolasbarwicki/skills --skill ship-epic
 ```
 
-**Heads up:** `ship-epic` invokes its companion skills (`tdd`, `review`,
+**Heads up:** `ship-epic` invokes its companion skills (`tdd`, `code-review`,
 `improve-codebase-architecture`) by name — installing `ship-epic`
 alone does not pull them. Add them separately from
 [Matt Pocock's skills repo](https://github.com/mattpocock/skills).
