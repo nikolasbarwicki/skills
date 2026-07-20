@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
@@ -9,6 +9,7 @@ import test from "node:test";
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const resolveOrder = path.join(root, "skills/ship-epic/scripts/resolve-order");
 const cleanMain = path.join(root, "skills/ship-epic/scripts/clean-main");
+const worktreeLease = path.join(root, "skills/ship-epic/scripts/worktree-lease");
 
 const run = (command, args, options = {}) =>
   spawnSync(command, args, { encoding: "utf8", ...options });
@@ -132,6 +133,75 @@ test("clean-main preserves a detached checkout style", () => {
   assert.equal(result.status, 0, result.stderr);
   assert.match(result.stdout, /OK detached/);
   assert.equal(git(work, "rev-parse", "--abbrev-ref", "HEAD"), "HEAD");
+});
+
+test("worktree-lease adds a detached worktree at origin tip and runs the install once", () => {
+  const { work, git } = makeFixtureRepo();
+  const wtRoot = path.join(path.dirname(work), "worktrees");
+  const result = run(
+    worktreeLease,
+    ["add", "12", "--default-branch", "trunk", "--root", wtRoot, "--install", "echo done > installed.txt"],
+    { cwd: work },
+  );
+  assert.equal(result.status, 0, result.stderr);
+  const wt = path.join(wtRoot, "issue-12");
+  assert.match(result.stdout, /OK issue-12/);
+  assert.equal(git(wt, "rev-parse", "--abbrev-ref", "HEAD"), "HEAD");
+  assert.equal(git(wt, "rev-parse", "HEAD"), git(work, "rev-parse", "origin/trunk"));
+  assert.equal(readFileSync(path.join(wt, "installed.txt"), "utf8").trim(), "done");
+  assert.equal(git(work, "status", "--porcelain"), "");
+});
+
+test("worktree-lease removes the worktree when the install fails", () => {
+  const { work } = makeFixtureRepo();
+  const wtRoot = path.join(path.dirname(work), "worktrees");
+  const result = run(
+    worktreeLease,
+    ["add", "13", "--default-branch", "trunk", "--root", wtRoot, "--install", "exit 1"],
+    { cwd: work },
+  );
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /install command failed/);
+  assert.equal(existsSync(path.join(wtRoot, "issue-13")), false);
+});
+
+test("worktree-lease lists run-owned worktrees with their state", () => {
+  const { work } = makeFixtureRepo();
+  const wtRoot = path.join(path.dirname(work), "worktrees");
+  run(worktreeLease, ["add", "14", "--default-branch", "trunk", "--root", wtRoot], { cwd: work });
+  writeFileSync(path.join(wtRoot, "issue-14", "wip.txt"), "in progress");
+  const result = run(worktreeLease, ["list", "--root", wtRoot], { cwd: work });
+  assert.equal(result.status, 0, result.stderr);
+  const [number, wtPath, state] = result.stdout.trimEnd().split("\t");
+  assert.equal(number, "14");
+  assert.match(wtPath, /\/issue-14$/);
+  assert.equal(state, "dirty");
+});
+
+test("worktree-lease refuses to remove a dirty worktree without --discard", () => {
+  const { work } = makeFixtureRepo();
+  const wtRoot = path.join(path.dirname(work), "worktrees");
+  run(worktreeLease, ["add", "15", "--default-branch", "trunk", "--root", wtRoot], { cwd: work });
+  writeFileSync(path.join(wtRoot, "issue-15", "wip.txt"), "unmerged work");
+
+  const refused = run(worktreeLease, ["remove", "15", "--root", wtRoot], { cwd: work });
+  assert.equal(refused.status, 1);
+  assert.match(refused.stderr, /dirty/);
+  assert.equal(existsSync(path.join(wtRoot, "issue-15")), true);
+
+  const discarded = run(worktreeLease, ["remove", "15", "--root", wtRoot, "--discard"], {
+    cwd: work,
+  });
+  assert.equal(discarded.status, 0, discarded.stderr);
+  assert.equal(existsSync(path.join(wtRoot, "issue-15")), false);
+});
+
+test("worktree-lease remove fails on a worktree it does not own", () => {
+  const { work } = makeFixtureRepo();
+  const wtRoot = path.join(path.dirname(work), "worktrees");
+  const result = run(worktreeLease, ["remove", "99", "--root", wtRoot], { cwd: work });
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /no run-owned worktree/);
 });
 
 test("clean-main refuses to rewrite a diverged local default branch", () => {

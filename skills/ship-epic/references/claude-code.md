@@ -22,11 +22,13 @@ Claude Code discovers project skills under `.claude/skills/` and user skills und
 | Root review | Root invokes `code-review`. Claude subagents cannot spawn subagents, so a child worker cannot own review. |
 | CI concurrency | Root may use a bounded background task while review runs; sequential CI then review is the safe fallback. |
 | Unattended permissions | Background subagents use already granted permissions and auto-deny calls that would prompt. Preflight must reject a posture that cannot complete required operations unattended. |
-| Checkout | Serial workers use the leased checkout. Optional subagent worktree isolation is not required by this release. |
+| Checkout | Serial workers use the leased checkout. Parallel workers use orchestrator-managed git worktrees created by the bundled `worktree-lease` script; subagent-level worktree isolation is not used. |
 
 ## Worktree limits
 
-Claude Code can isolate a subagent with `isolation: worktree`, and `.worktreeinclude` can copy selected ignored files. `ship-epic` intentionally does not request that feature in its serial baseline. Bounded isolated parallelism and dependency provisioning belong to issue #1.
+Claude Code can isolate a subagent with `isolation: worktree`, and `.worktreeinclude` can copy selected ignored files. `ship-epic` intentionally does not use that feature: its parallel mode creates worktrees itself with the harness-neutral [`worktree-lease`](../scripts/worktree-lease) script and hands each worker an explicit path, so the same contract runs on every harness and worktrees survive compaction via `git worktree list`.
+
+The default worktree root is `<toplevel>.worktrees`, a sibling of the primary checkout. Grant that directory as an additional working directory (or pass `--root` with a permitted path) so parallel workers can edit and run tests there without prompting. Each worktree gets a one-time dependency install; `.worktreeinclude`-style copying is not a substitute for it.
 
 ## Permissions
 

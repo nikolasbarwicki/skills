@@ -66,6 +66,21 @@ test("protects checkout state and discovers the default branch", () => {
 test("references the deterministic helper scripts instead of inlining them", () => {
   assert.match(skill, /scripts\/resolve-order/);
   assert.match(skill, /scripts\/clean-main/);
+  assert.match(skill, /scripts\/worktree-lease/);
+});
+
+test("parallel mode is opt-in with strictly serial merges", () => {
+  assert.match(skill, /--parallel/);
+  assert.match(skill, /Serial remains the default/);
+  assert.match(skill, /defaulting to 2 and capped at 3/);
+  assert.match(skill, /pairwise independent/);
+  assert.match(skill, /earliest unmerged child merges first/);
+  assert.match(skill, /rebase every other open PR branch/);
+  assert.match(skill, /restart CI and both review axes/);
+  assert.match(skill, /one-time install; shared or linked dependency directories are unsupported/);
+  assert.match(skill, /worktree-lease.*`list` and reconcile/);
+  assert.match(prompts, /## Parallel rebase/);
+  assert.match(prompts, /force-push with lease/);
 });
 
 test("documents verification tiers and Matt compatibility baseline", () => {
@@ -83,4 +98,10 @@ test("documents verification tiers and Matt compatibility baseline", () => {
   ]) {
     assert.match(readme, new RegExp("`" + dependency + "`"));
   }
+});
+
+test("documents the per-worktree dependency strategy", () => {
+  assert.match(readme, /one-time dependency install/);
+  assert.match(readme, /symlinked `node_modules`, hardlink caches\) are unsupported/);
+  assert.match(readme, /scripts\/worktree-lease/);
 });
