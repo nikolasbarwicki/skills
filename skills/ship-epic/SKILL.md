@@ -23,7 +23,7 @@ Complete every check before recording run-start state or changing implementation
 3. Confirm the active permission posture allows unattended workspace edits, git writes, and GitHub network operations. Any operation that would wait for human approval fails preflight.
 4. Confirm `git` and `gh` exist; the GitHub remote, authentication, repository access, and push/PR permissions are usable.
 5. Obtain confirmation of an exclusive checkout for this run. Require `git status --porcelain` to be empty, including untracked files; preserve every pre-existing change and stop when it is dirty. Record whether it starts attached or detached.
-6. Discover the default branch from GitHub and fetch `origin`. Require an attached start to use that branch and a detached start to derive from it, then synchronize to current `origin/<default-branch>` while preserving the starting style.
+6. Discover the default branch from GitHub and fetch `origin`. Require an attached start to use that branch and a detached start to derive from it, then run [scripts/clean-main](scripts/clean-main) to synchronize to current `origin/<default-branch>` while preserving the starting style.
 7. Read the applicable repository instructions and identify the baseline test, typecheck, and lint commands. Run the strongest baseline verification available, restore only outputs created by that verification, and require the checkout to be clean again.
 8. Resolve every reachable child and obtain one explicit approval for the complete test-decision map in **Approve test seams**.
 
@@ -57,11 +57,9 @@ Record failed attempts and blockers on the child issue. The two merge-comment fo
 
 ## Resolve dependency order
 
-1. Discover children through native sub-issues/task lists or fallback `## Parent` references.
-2. Parse native blocking edges or fallback `## Blocked by` sections.
-3. Topologically sort the graph; break ties by issue number. Stop and report every cycle.
+Run [scripts/resolve-order](scripts/resolve-order) with the parent issue. It discovers children through native sub-issues/task lists or fallback `## Parent` references, parses native blocking edges or fallback `## Blocked by` sections, and emits the topological order with ties broken by issue number. It exits non-zero on a cycle and names every unresolvable child; stop and report them.
 
-If `[start-issue]` is supplied, start there while preserving dependency order for everything after it.
+If `[start-issue]` is supplied, pass it as the script's second argument to start there while preserving dependency order for everything after it.
 
 ## Approve test seams
 
@@ -77,14 +75,14 @@ Every child needs an approved seam or an explicit user-approved `NON-TDD` except
 
 For each child in dependency order:
 
-1. **Sync the leased checkout**: fetch `origin`; return to the current `origin/<default-branch>` while preserving the recorded attached/detached style; require a clean tree. On a failed run-created attempt branch, reset only its recorded run-owned changes before syncing.
+1. **Sync the leased checkout**: run [scripts/clean-main](scripts/clean-main) with the recorded default branch and attached/detached style. It fetches `origin`, returns to the current `origin/<default-branch>`, and fails loudly instead of touching a dirty tree. On a failed run-created attempt branch, pass `--reset-attempt <branch>` so it discards only its recorded run-owned changes before syncing.
 2. **Implement**: delegate one bounded worker with the **Implementer** template from [prompts.md](prompts.md), the default branch, and that child's approved test decision. It creates a feature branch from `origin/<default-branch>`, applies `tdd` by name at an approved seam using red → green vertical slices (or follows the approved exception), commits, pushes, and opens a PR with `Closes #<n>`.
 3. **Gate — root owns CI and review**:
    - Resolve the current PR head SHA. Run bounded CI watching concurrently with root review when supported. Sequential CI then review is the fallback.
    - Green CI passes. Failing CI routes to a fresh fixer worker. CI stalled beyond the configured bound (default about 25 minutes) enters the circuit breaker.
    - Apply `code-review` **at root** with fixed point `origin/<default-branch>` and issue `#<n>` as the Spec source. The skill creates its own direct Standards and Spec workers; never wrap it in another worker.
    - Persist and classify the result under **Review gate policy**. Blocking findings route to a fresh fixer. Any new commit restarts CI and both review axes for the new head.
-4. **Merge** only after green CI and a valid clean review: squash-merge and delete the remote branch, then sync the leased checkout to the new `origin/<default-branch>` using its recorded style.
+4. **Merge** only after green CI and a valid clean review: squash-merge and delete the remote branch, then run [scripts/clean-main](scripts/clean-main) to sync the leased checkout to the new `origin/<default-branch>` using its recorded style.
 5. **Record** the child merge on the parent and continue.
 
 ### Review gate policy — SHA-bound

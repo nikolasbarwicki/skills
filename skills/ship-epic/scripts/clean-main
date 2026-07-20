@@ -1,0 +1,95 @@
+#!/usr/bin/env bash
+# clean-main — guarantee a clean checkout at the tip of the discovered default
+# branch, or fail loudly. Never touches pre-existing changes: a dirty tree is
+# fatal unless the checkout sits on the named run-created attempt branch.
+#
+# Usage:
+#   clean-main [--default-branch <name>] [--style attached|detached]
+#              [--reset-attempt <branch>]
+#
+#   --default-branch  Branch to sync to. Default: discovered via `gh repo view`,
+#                     falling back to origin/HEAD.
+#   --style           Checkout style to end on. Default: the current style
+#                     (attached branch vs detached HEAD) is preserved.
+#   --reset-attempt   A run-created attempt branch whose uncommitted, run-owned
+#                     changes may be discarded — only while checked out on it.
+#
+# Exit codes: 0 clean at origin/<default-branch>; 1 guard failure (dirty tree,
+# diverged local default branch, or verification mismatch); 2 usage error.
+set -euo pipefail
+
+default_branch=""
+style=""
+reset_attempt=""
+
+usage() {
+  echo "clean-main: $*" >&2
+  exit 2
+}
+
+fail() {
+  echo "clean-main: FAIL: $*" >&2
+  exit 1
+}
+
+while (($#)); do
+  case "$1" in
+    --default-branch) default_branch="${2:?}" && shift 2 ;;
+    --style) style="${2:?}" && shift 2 ;;
+    --reset-attempt) reset_attempt="${2:?}" && shift 2 ;;
+    -h | --help)
+      sed -n '2,18p' "$0" | sed 's/^# \{0,1\}//'
+      exit 0
+      ;;
+    *) usage "unknown argument: $1" ;;
+  esac
+done
+
+git rev-parse --is-inside-work-tree >/dev/null 2>&1 || usage "not inside a git checkout"
+
+if [[ -z "$default_branch" ]]; then
+  default_branch="$(gh repo view --json defaultBranchRef --jq .defaultBranchRef.name 2>/dev/null || true)"
+fi
+if [[ -z "$default_branch" ]]; then
+  default_branch="$(git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's|^origin/||' || true)"
+fi
+[[ -n "$default_branch" ]] || fail "cannot discover the default branch; pass --default-branch"
+
+if [[ -z "$style" ]]; then
+  if git symbolic-ref -q HEAD >/dev/null; then style="attached"; else style="detached"; fi
+fi
+[[ "$style" == "attached" || "$style" == "detached" ]] || usage "--style must be attached or detached"
+
+git fetch origin "$default_branch" || fail "cannot fetch origin/$default_branch"
+
+if [[ -n "$(git status --porcelain)" ]]; then
+  current="$(git symbolic-ref -q --short HEAD || echo "(detached)")"
+  if [[ -n "$reset_attempt" && "$current" == "$reset_attempt" && "$reset_attempt" != "$default_branch" ]]; then
+    echo "clean-main: discarding run-owned changes on attempt branch $reset_attempt" >&2
+    git reset --hard HEAD >/dev/null
+    git clean -fd >/dev/null
+  else
+    git status --short >&2
+    fail "checkout is dirty on '$current' and no matching --reset-attempt applies; preserving changes"
+  fi
+fi
+
+if [[ "$style" == "detached" ]]; then
+  git checkout --quiet --detach "origin/$default_branch"
+else
+  if git show-ref --verify --quiet "refs/heads/$default_branch"; then
+    git checkout --quiet "$default_branch"
+    git merge --ff-only --quiet "origin/$default_branch" ||
+      fail "local $default_branch diverged from origin/$default_branch; refusing to rewrite it"
+  else
+    git checkout --quiet -b "$default_branch" "origin/$default_branch"
+  fi
+fi
+
+[[ -z "$(git status --porcelain)" ]] || fail "checkout still dirty after sync"
+head_sha="$(git rev-parse HEAD)"
+remote_sha="$(git rev-parse "origin/$default_branch")"
+[[ "$head_sha" == "$remote_sha" ]] ||
+  fail "HEAD $head_sha is not origin/$default_branch $remote_sha"
+
+echo "clean-main: OK $style at origin/$default_branch ($head_sha)"

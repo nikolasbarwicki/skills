@@ -63,6 +63,11 @@ test("protects checkout state and discovers the default branch", () => {
   }
 });
 
+test("references the deterministic helper scripts instead of inlining them", () => {
+  assert.match(skill, /scripts\/resolve-order/);
+  assert.match(skill, /scripts\/clean-main/);
+});
+
 test("documents verification tiers and Matt compatibility baseline", () => {
   assert.match(readme, /Matt Pocock skills `1\.1\.0`/);
   assert.match(readme, /e9fcdf95b402d360f90f1db8d776d5dd450f9234/);

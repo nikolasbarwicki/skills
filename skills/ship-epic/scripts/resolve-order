@@ -1,0 +1,188 @@
+#!/usr/bin/env bash
+# resolve-order — emit the dependency order for the reachable children of a parent epic issue.
+#
+# Usage:
+#   resolve-order [-R owner/repo] <parent-issue> [start-issue]
+#   resolve-order --graph <file> [start-issue]
+#
+# GitHub mode discovers children through native sub-issues, fallback task-list
+# references in the parent body, or fallback `## Parent` references in child
+# bodies. Blocking edges come from native issue dependencies with a fallback to
+# `## Blocked by` sections. Requires `gh` (authenticated); no external jq needed.
+#
+# Graph mode reads one child per line from <file> for offline use and tests:
+#   <number>\t<blocked-by csv or ->\t<title>
+#
+# Output: one child per line, `<number>\t<title>`, in dependency order with ties
+# broken by ascending issue number. With [start-issue], output begins at that
+# child while preserving the order of everything after it.
+#
+# Exit codes: 0 order emitted; 1 cycle detected (members listed on stderr);
+# 2 usage or discovery error.
+set -euo pipefail
+
+repo=""
+graph_file=""
+args=()
+
+while (($#)); do
+  case "$1" in
+    -R)
+      repo="${2:?-R requires owner/repo}"
+      shift 2
+      ;;
+    --graph)
+      graph_file="${2:?--graph requires a file}"
+      shift 2
+      ;;
+    -h | --help)
+      sed -n '2,20p' "$0" | sed 's/^# \{0,1\}//'
+      exit 0
+      ;;
+    *)
+      args+=("$1")
+      shift
+      ;;
+  esac
+done
+
+fail() {
+  echo "resolve-order: $*" >&2
+  exit 2
+}
+
+declare -A title blocked_by in_set
+
+add_child() {
+  local number="$1" child_title="$2"
+  [[ -n "${in_set[$number]:-}" ]] && return 0
+  in_set[$number]=1
+  title[$number]="$child_title"
+  blocked_by[$number]=""
+}
+
+# Extract issue references (#N) from the section under a given `## Heading`
+# until the next heading.
+section_refs() {
+  local body="$1" heading="$2"
+  awk -v h="$heading" '
+    tolower($0) ~ "^##[[:space:]]+" h "[[:space:]]*$" { on = 1; next }
+    /^#/ { on = 0 }
+    on { print }
+  ' <<<"$body" | grep -oE '#[0-9]+' | tr -d '#' || true
+}
+
+if [[ -n "$graph_file" ]]; then
+  [[ ${#args[@]} -le 1 ]] || fail "graph mode takes at most [start-issue]"
+  start_issue="${args[0]:-}"
+  [[ -r "$graph_file" ]] || fail "cannot read graph file: $graph_file"
+  while IFS=$'\t' read -r number blockers child_title; do
+    [[ -n "$number" ]] || continue
+    add_child "$number" "$child_title"
+    [[ "$blockers" == "-" || -z "$blockers" ]] && continue
+    blocked_by[$number]="${blockers//,/ }"
+  done <"$graph_file"
+else
+  [[ ${#args[@]} -ge 1 && ${#args[@]} -le 2 ]] ||
+    fail "usage: resolve-order [-R owner/repo] <parent-issue> [start-issue]"
+  parent="${args[0]}"
+  start_issue="${args[1]:-}"
+  command -v gh >/dev/null || fail "gh is required"
+  [[ -n "$repo" ]] || repo="$(gh repo view --json nameWithOwner --jq .nameWithOwner)" ||
+    fail "no repository; pass -R owner/repo"
+
+  # 1. Native sub-issues.
+  while IFS=$'\t' read -r number child_title; do
+    [[ -n "$number" ]] && add_child "$number" "$child_title"
+  done < <(gh api "repos/$repo/issues/$parent/sub_issues" --paginate \
+    --jq '.[] | [.number, .title] | @tsv' 2>/dev/null || true)
+
+  # 2. Fallback: task-list references (- [ ] #N) in the parent body.
+  if [[ ${#in_set[@]} -eq 0 ]]; then
+    parent_body="$(gh issue view "$parent" -R "$repo" --json body --jq .body)"
+    while read -r number; do
+      child_title="$(gh issue view "$number" -R "$repo" --json title --jq .title)" &&
+        add_child "$number" "$child_title"
+    done < <(grep -oE '^[[:space:]]*[-*][[:space:]]+\[[ xX]\][^#]*#[0-9]+' <<<"$parent_body" |
+      grep -oE '#[0-9]+' | tr -d '#' || true)
+  fi
+
+  # 3. Fallback: children whose body has a `## Parent` section referencing the parent.
+  if [[ ${#in_set[@]} -eq 0 ]]; then
+    while IFS=$'\t' read -r number child_title body_refs; do
+      for ref in $body_refs; do
+        [[ "$ref" == "$parent" ]] && add_child "$number" "$child_title"
+      done
+    done < <(gh issue list -R "$repo" --state all --limit 1000 --json number,title,body \
+      --jq '.[] | [.number, .title, .body] | @tsv' |
+      while IFS=$'\t' read -r number child_title body; do
+        refs="$(section_refs "$(printf '%b' "$body")" 'parent' | tr '\n' ' ')"
+        [[ -n "$refs" ]] && printf '%s\t%s\t%s\n' "$number" "$child_title" "$refs"
+      done)
+  fi
+
+  [[ ${#in_set[@]} -gt 0 ]] || fail "no children found for #$parent in $repo"
+
+  # Blocking edges: native issue dependencies, else `## Blocked by` sections.
+  for number in "${!in_set[@]}"; do
+    edges="$(gh api "repos/$repo/issues/$number/dependencies/blocked_by" --paginate \
+      --jq '.[].number' 2>/dev/null | tr '\n' ' ' || true)"
+    if [[ -z "${edges// /}" ]]; then
+      body="$(gh issue view "$number" -R "$repo" --json body --jq .body)"
+      edges="$(section_refs "$body" 'blocked by' | tr '\n' ' ')"
+    fi
+    blocked_by[$number]="$edges"
+  done
+fi
+
+# Keep only edges inside the child set, then topologically sort (Kahn),
+# always picking the lowest-numbered unblocked child.
+declare -A indegree
+for number in "${!in_set[@]}"; do
+  kept=""
+  for blocker in ${blocked_by[$number]}; do
+    [[ -n "${in_set[$blocker]:-}" && "$blocker" != "$number" ]] && kept+="$blocker "
+  done
+  blocked_by[$number]="$kept"
+  indegree[$number]=$(wc -w <<<"$kept")
+done
+
+order=()
+remaining=${#in_set[@]}
+while ((remaining > 0)); do
+  pick=""
+  for number in $(printf '%s\n' "${!in_set[@]}" | sort -n); do
+    [[ -z "${indegree[$number]:-}" ]] && continue
+    if ((indegree[$number] == 0)); then
+      pick="$number"
+      break
+    fi
+  done
+  if [[ -z "$pick" ]]; then
+    unresolved="$(for number in "${!in_set[@]}"; do
+      [[ -n "${indegree[$number]:-}" ]] && echo "$number"
+    done | sort -n | sed 's/^/#/' | tr '\n' ' ')"
+    echo "resolve-order: cycle detected; unresolvable children: $unresolved" >&2
+    exit 1
+  fi
+  order+=("$pick")
+  unset "indegree[$pick]"
+  ((remaining--))
+  for number in "${!in_set[@]}"; do
+    [[ -z "${indegree[$number]:-}" ]] && continue
+    for blocker in ${blocked_by[$number]}; do
+      [[ "$blocker" == "$pick" ]] && ((indegree[$number]--)) || true
+    done
+  done
+done
+
+emit=1
+if [[ -n "${start_issue:-}" ]]; then
+  [[ -n "${in_set[$start_issue]:-}" ]] || fail "start issue #$start_issue is not a reachable child"
+  emit=0
+fi
+for number in "${order[@]}"; do
+  [[ "$emit" == 0 && "$number" == "$start_issue" ]] && emit=1
+  ((emit)) && printf '%s\t%s\n' "$number" "${title[$number]}"
+done
+exit 0
