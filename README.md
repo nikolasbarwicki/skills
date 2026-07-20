@@ -35,7 +35,7 @@ Hosted ChatGPT Work is a different execution environment and is not verified or 
 | `tdd` | Red → green implementation at human-approved seams |
 | `code-review` | Independent Standards and Spec review from a fixed point |
 
-The validated baseline is Matt Pocock skills `1.1.0`, audited at commit [`e9fcdf95`](https://github.com/mattpocock/skills/commit/e9fcdf95b402d360f90f1db8d776d5dd450f9234). Newer versions are allowed; this repository checks current upstream names and invocation policies on pull requests and weekly.
+The validated baseline is Matt Pocock skills `1.1.0`, audited at commit [`e9fcdf95`](https://github.com/mattpocock/skills/commit/e9fcdf95b402d360f90f1db8d776d5dd450f9234) — a working commit on the `1.1.0` line, not the release tag itself. Newer versions are allowed; this repository checks current upstream names and invocation policies on pull requests and weekly.
 
 Architecture exploration is a separate, explicitly human-led follow-up. If an epic merged related PRs, its closeout offers `improve-codebase-architecture`. That optional workflow requires `improve-codebase-architecture`, `codebase-design`, `grilling`, and `domain-modeling`; none is invoked or required by `ship-epic`.
 
@@ -86,6 +86,10 @@ node skills/ship-epic/scripts/check-matt-compatibility.mjs /path/to/mattpocock-s
 ```
 
 It fails when `tdd` or `code-review` is missing or becomes user-only in either Claude Code or Codex. It does not run during `ship-epic` execution.
+
+## Changelog
+
+See [CHANGELOG.md](./CHANGELOG.md) for the per-release history.
 
 ## License
 
