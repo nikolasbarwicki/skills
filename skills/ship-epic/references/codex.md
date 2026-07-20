@@ -22,13 +22,13 @@ Codex discovers project skills under `.agents/skills/` and user skills under `~/
 | Root review | Root invokes `code-review`; its two direct agents fit the default `agents.max_depth = 1`. A child worker cannot invoke that review. |
 | CI concurrency | Root may keep a bounded check watcher running while the review agents work; sequential CI then review is the safe fallback. |
 | Unattended permissions | Subagents inherit the parent task's sandbox and approval posture. Preflight must reject a posture that can pause for user approval during required operations. |
-| Checkout | Serial workers use the task's leased checkout. No per-worker isolation is assumed. |
+| Checkout | Serial workers use the task's leased checkout. Parallel workers use orchestrator-managed git worktrees created by the bundled `worktree-lease` script; no harness-level per-worker isolation is assumed. |
 
 ## Worktree limits
 
-A Codex task worktree is created at the app/task level and starts detached by default. It is not evidence that each subagent has a separate writable checkout. `ship-epic` therefore keeps one serial writer and supports a detached base. Bounded isolated parallelism belongs to issue #1.
+A Codex task worktree is created at the app/task level and starts detached by default. It is not evidence that each subagent has a separate writable checkout. `ship-epic` therefore keeps one serial writer by default, and its opt-in parallel mode does not rely on any Codex isolation feature: the orchestrator creates additional worktrees itself with the harness-neutral [`worktree-lease`](../scripts/worktree-lease) script and hands each worker an explicit path.
 
-The task worktree may copy selected ignored files through `.worktreeinclude`; baseline verification must still prove that dependencies and required local configuration are usable.
+The default worktree root is `<toplevel>.worktrees`, a sibling of the task checkout; the sandbox must permit writes there, or pass `--root` with a permitted path. The task worktree may copy selected ignored files through `.worktreeinclude`, but that is not a substitute for the one-time dependency install each run-owned worktree receives; baseline verification must still prove that dependencies and required local configuration are usable.
 
 ## Permissions
 

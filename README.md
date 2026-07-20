@@ -8,6 +8,12 @@ Explicitly invoke `ship-epic` with a GitHub parent issue. It resolves reachable 
 
 The core workflow is harness-neutral: it requires capabilities without detecting a vendor or naming a vendor's tools. Serial execution is the portable baseline; genuinely blocked children are recorded and skipped so an unattended run can finish.
 
+### Parallel mode (opt-in)
+
+`--parallel [N]` implements up to `N` independent children concurrently (`N` defaults to 2, capped at 3) while merges stay strictly serial in dependency order. The orchestrator creates one git worktree per active child with the bundled `worktree-lease` script — no harness isolation feature is used — and after every merge the other open branches are rebased onto the new default-branch tip and fully re-gated.
+
+Dependency strategy: every worktree gets its own **one-time dependency install** using the install command identified during preflight. This is slow but correct with every package manager; shared or linked dependency directories (e.g. symlinked `node_modules`, hardlink caches) are unsupported because they are fragile under concurrent installs. Serial remains the default, and recovery reconciles surviving worktrees through `git worktree list`.
+
 ### Support matrix
 
 | Harness | Status | Invocation | Notes |
@@ -35,12 +41,13 @@ Architecture exploration is a separate, explicitly human-led follow-up. If an ep
 
 ### Deterministic helper scripts
 
-Two bundled, dependency-light scripts (bash + `git`/`gh`) replace procedures the orchestrator previously re-derived in context on every run and after every compaction:
+Three bundled, dependency-light scripts (bash + `git`/`gh`) replace procedures the orchestrator previously re-derived in context on every run and after every compaction:
 
 | Script | Role |
 | --- | --- |
 | [`scripts/resolve-order`](skills/ship-epic/scripts/resolve-order) | Discover an epic's children and emit their dependency order; exits non-zero on cycles. `--graph <file>` runs it offline. |
 | [`scripts/clean-main`](skills/ship-epic/scripts/clean-main) | Assert/restore a clean checkout at the tip of the discovered default branch, or fail loudly. Preserves pre-existing changes; discards only run-owned changes on a named attempt branch. |
+| [`scripts/worktree-lease`](skills/ship-epic/scripts/worktree-lease) | Create, list, and remove run-owned worktrees for parallel implementers: one per child issue, detached at `origin/<default-branch>`, with a one-time per-worktree dependency install. Never touches other worktrees. |
 
 ## Install
 

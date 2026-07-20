@@ -18,15 +18,18 @@ You are running unattended inside an approved epic run.
 ```text
 <AFK contract>
 
-Implement GitHub issue #<n> in the leased checkout.
+Implement GitHub issue #<n> in the assigned checkout.
 
 Default branch: <default-branch>
+Checkout: <the leased checkout | the run-owned worktree at <path>>
 Approved test decision: <public seam + behavior | NON-TDD: reason>
 
 The test decision was separately approved during epic preflight. Treat it as final.
 
 Setup:
-1. Fetch origin and require a clean checkout at origin/<default-branch>.
+1. Work only inside the assigned checkout. Fetch origin and require a clean checkout
+   at origin/<default-branch>. Dependencies were installed before delegation; report
+   a capability failure if verification commands are unusable.
 2. Create <type>/issue-<n>-<short-slug> from origin/<default-branch>.
 3. Read the complete issue and its comments.
 
@@ -88,6 +91,25 @@ Blocking evidence:
 <one concise item per failure or finding, preserving Standards and Spec headings>
 
 Return only two or three lines: root cause, change, and confidence.
+```
+
+## Parallel rebase
+
+```text
+<AFK contract>
+
+PR #<pr> on <branch> for issue #<n> must follow the newly advanced default branch.
+
+Checkout: the run-owned worktree at <path>
+
+1. Work only inside the assigned worktree. Fetch origin and check out <branch> at its
+   current remote head.
+2. Rebase <branch> onto origin/<default-branch>. Resolve conflicts so both the newly
+   merged behavior and this issue's approved behavior tests are preserved; never
+   delete or weaken valid tests.
+3. Run relevant checks until green, then force-push with lease to the same branch.
+
+Return only two or three lines: rebase result, conflict areas touched, and confidence.
 ```
 
 ## Re-planner

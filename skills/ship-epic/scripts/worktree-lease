@@ -1,0 +1,124 @@
+#!/usr/bin/env bash
+# worktree-lease — create, list, and remove run-owned git worktrees for
+# parallel ship-epic implementers. One worktree per child issue, detached at
+# origin/<default-branch>, with a one-time per-worktree dependency install.
+#
+# Usage:
+#   worktree-lease add <issue> [--default-branch <name>] [--root <dir>]
+#                     [--install <command>]
+#   worktree-lease list [--root <dir>]
+#   worktree-lease remove <issue> [--root <dir>] [--discard]
+#
+#   add      Fetch origin, create <root>/issue-<issue> detached at
+#            origin/<default-branch>, then run <command> once inside it.
+#            An install failure removes the worktree and fails.
+#   list     Print `<issue>\t<path>\t<clean|dirty>` for run-owned worktrees.
+#   remove   Remove a clean run-owned worktree. --discard also drops
+#            uncommitted changes inside it. Other worktrees are never touched.
+#
+# The default <root> is `<toplevel>.worktrees`, a sibling of the primary
+# checkout, so run-owned worktrees never appear in its `git status`.
+#
+# Exit codes: 0 success; 1 guard failure (dirty worktree, failed install,
+# existing path); 2 usage error.
+set -euo pipefail
+
+usage() {
+  echo "worktree-lease: $*" >&2
+  exit 2
+}
+
+fail() {
+  echo "worktree-lease: FAIL: $*" >&2
+  exit 1
+}
+
+command="${1:-}"
+[[ -n "$command" ]] || usage "missing command: add, list, or remove"
+shift
+
+issue=""
+default_branch=""
+root=""
+install=""
+discard=0
+
+while (($#)); do
+  case "$1" in
+    --default-branch) default_branch="${2:?}" && shift 2 ;;
+    --root) root="${2:?}" && shift 2 ;;
+    --install) install="${2:?}" && shift 2 ;;
+    --discard) discard=1 && shift ;;
+    -h | --help)
+      sed -n '2,22p' "$0" | sed 's/^# \{0,1\}//'
+      exit 0
+      ;;
+    -*) usage "unknown argument: $1" ;;
+    *)
+      [[ -z "$issue" ]] || usage "unexpected argument: $1"
+      issue="$1"
+      shift
+      ;;
+  esac
+done
+
+git rev-parse --is-inside-work-tree >/dev/null 2>&1 || usage "not inside a git checkout"
+toplevel="$(git rev-parse --show-toplevel)"
+[[ -n "$root" ]] || root="${toplevel}.worktrees"
+# git reports canonical worktree paths; canonicalize the root the same way.
+mkdir -p "$root"
+root="$(cd "$root" && pwd -P)"
+
+case "$command" in
+  add)
+    [[ "$issue" =~ ^[0-9]+$ ]] || usage "add requires a numeric <issue>"
+    if [[ -z "$default_branch" ]]; then
+      default_branch="$(gh repo view --json defaultBranchRef --jq .defaultBranchRef.name 2>/dev/null || true)"
+    fi
+    if [[ -z "$default_branch" ]]; then
+      default_branch="$(git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's|^origin/||' || true)"
+    fi
+    [[ -n "$default_branch" ]] || fail "cannot discover the default branch; pass --default-branch"
+    path="$root/issue-$issue"
+    [[ -e "$path" ]] && fail "path already exists: $path"
+    git fetch origin "$default_branch" || fail "cannot fetch origin/$default_branch"
+    git worktree add --quiet --detach "$path" "origin/$default_branch" ||
+      fail "cannot create worktree at $path"
+    if [[ -n "$install" ]]; then
+      if ! (cd "$path" && bash -c "$install"); then
+        git worktree remove --force "$path" >/dev/null 2>&1 || true
+        fail "install command failed in $path; worktree removed"
+      fi
+    fi
+    sha="$(git -C "$path" rev-parse HEAD)"
+    echo "worktree-lease: OK issue-$issue at $path ($sha)"
+    ;;
+  list)
+    [[ -z "$issue" ]] || usage "list takes no <issue>"
+    git worktree list --porcelain | while read -r key value; do
+      [[ "$key" == "worktree" ]] || continue
+      case "$value" in
+        "$root"/issue-*)
+          number="${value##*/issue-}"
+          if [[ -n "$(git -C "$value" status --porcelain)" ]]; then state="dirty"; else state="clean"; fi
+          printf '%s\t%s\t%s\n' "$number" "$value" "$state"
+          ;;
+      esac
+    done
+    ;;
+  remove)
+    [[ "$issue" =~ ^[0-9]+$ ]] || usage "remove requires a numeric <issue>"
+    path="$root/issue-$issue"
+    git worktree list --porcelain | grep -qx "worktree $path" ||
+      fail "no run-owned worktree at $path"
+    if [[ -n "$(git -C "$path" status --porcelain)" && "$discard" -eq 0 ]]; then
+      git -C "$path" status --short >&2
+      fail "worktree $path is dirty; pass --discard to drop its changes"
+    fi
+    git worktree remove --force "$path" || fail "cannot remove worktree at $path"
+    echo "worktree-lease: OK removed issue-$issue"
+    ;;
+  *)
+    usage "unknown command: $command"
+    ;;
+esac
