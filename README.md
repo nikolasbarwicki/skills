@@ -33,6 +33,15 @@ The validated baseline is Matt Pocock skills `1.1.0`, audited at commit [`e9fcdf
 
 Architecture exploration is a separate, explicitly human-led follow-up. If an epic merged related PRs, its closeout offers `improve-codebase-architecture`. That optional workflow requires `improve-codebase-architecture`, `codebase-design`, `grilling`, and `domain-modeling`; none is invoked or required by `ship-epic`.
 
+### Deterministic helper scripts
+
+Two bundled, dependency-light scripts (bash + `git`/`gh`) replace procedures the orchestrator previously re-derived in context on every run and after every compaction:
+
+| Script | Role |
+| --- | --- |
+| [`scripts/resolve-order`](skills/ship-epic/scripts/resolve-order) | Discover an epic's children and emit their dependency order; exits non-zero on cycles. `--graph <file>` runs it offline. |
+| [`scripts/clean-main`](skills/ship-epic/scripts/clean-main) | Assert/restore a clean checkout at the tip of the discovered default branch, or fail loudly. Preserves pre-existing changes; discards only run-owned changes on a named attempt branch. |
+
 ## Install
 
 Use the [`skills`](https://github.com/vercel-labs/skills) CLI and target the active harness explicitly.
